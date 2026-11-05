@@ -44,7 +44,7 @@ Six rules. IDs are stable, so ignores and links never break.
 | ID | Name | Needs | Fires when | Severity |
 |---|---|---|---|---|
 | DL001 | `install-script` | lockfile | The lockfile marks the package `hasInstallScript` (preinstall, install or postinstall) | low |
-| DL002 | `unusual-source` | lockfile | `resolved` is a git URL, a remote tarball or another registry host; or it uses `http://`; or there's no `integrity` hash | medium; high for `http://`, another host or no hash |
+| DL002 | `unusual-source` | lockfile | `resolved` is a git URL, uses `http://`, or points at a host that isn't a configured registry; or there's no `integrity` hash | medium for git; high otherwise |
 | DL003 | `typosquat` | bundled list | The name is one or two edits away from a popular package that isn't in the tree | high |
 | DL004 | `recent-release` | registry | This version was published less than 3 days ago | medium |
 | DL005 | `new-publisher` | registry | The npm account that published this version (`_npmUser`) never published an earlier version | medium |
@@ -92,43 +92,50 @@ interface PackageNode {
   integrity?: string;
   hasInstallScript: boolean;
   dev: boolean;
+  bundled: boolean;      // ships inside its parent's tarball
   path: string[];        // shortest chain from the root
 }
 
 interface Rule {
   id: string;            // "DL006"
   name: string;          // "provenance-dropped"
-  needsRegistry: boolean;
-  why: string;           // shown with every finding
+  why: string;           // written once, shown with the rule's findings
   fix: string;
-  check(pkg: PackageNode, ctx: RuleContext): Finding[];   // pure
+  check(pkg: PackageNode, ctx: RuleContext): Match | undefined;   // pure
+}
+
+interface Match {        // what a rule saw; the engine adds rule, package and path
+  severity: Severity;
+  message: string;       // one line, with specifics
+  evidence: Record<string, string | number | boolean>;
 }
 
 interface Finding {
   ruleId: string;
+  ruleName: string;
   severity: Severity;
   package: { name: string; version: string };
-  message: string;                                   // one line, with specifics
+  message: string;
   evidence: Record<string, string | number | boolean>;
   via: string[];
 }
 
-interface RegistryClient {
-  packument(name: string): Promise<Packument | undefined>;
-}
-
-function analyze(input: AnalyzeInput, deps: { registry?: RegistryClient; now: Date }): Promise<Finding[]>;
+function analyze(input: AnalyzeInput): Report;   // { packageCount, findings }
 ```
 
-`why` and `fix` live on the rule, not on each finding, so the explanation is written once.
+Rules return at most one `Match` per package, and the engine turns it into a `Finding`. `why` and `fix` live on the rule, not on each finding, so the explanation is written once.
+
+Milestone 3 adds a `RegistryClient` interface (`packument(name)`), a `needsRegistry` flag on rules, and the current date as an input. At that point `analyze()` becomes async.
 
 With no registry client (`--offline`), the three registry rules are skipped and the report says so. The client caps concurrent requests at 8 and retries once on HTTP 429. Responses are kept in memory for the run, with no disk cache: diff mode keeps request counts small enough not to need one.
 
 ### Interface
 
 ```
-deplens scan [dir] [--base GIT_REF] [--offline] [--json] [--fail-on low|medium|high]
+deplens scan [dir] [--base GIT_REF] [--offline] [--json] [--fail-on low|medium|high] [--registry URL]...
 ```
+
+`--registry` lists the registries packages may come from (default: the public npm registry), so teams using a private registry don't see every package flagged.
 
 `--base` reads the base lockfile with `git show REF:package-lock.json` and scans only packages that are new or changed. Exit codes: `0` nothing at or above `--fail-on`, `1` findings at or above it, `2` error.
 
@@ -148,7 +155,7 @@ The GitHub Action wraps the same `analyze()`. In a pull request it diffs against
 
 ## Technology
 
-TypeScript on Node ≥ 22 with zero runtime dependencies: `fetch`, `node:util` `parseArgs`, `node:test` and `node:fs` cover everything. Since there are no runtime dependencies, the Action can run the compiled `tsc` output directly, with no bundler. The only dev dependency is `typescript`.
+TypeScript on Node ≥ 22.18 with zero runtime dependencies: `fetch`, `node:util` `parseArgs`, `node:test` and `node:fs` cover everything. Tests run the `.ts` sources directly with Node's built-in type stripping, so the code sticks to syntax Node can strip (`erasableSyntaxOnly`). Since there are no runtime dependencies, the Action can run the compiled `tsc` output directly, with no bundler. The only dev dependencies are `typescript` and `@types/node` (pinned to the oldest supported Node line).
 
 ## Testing
 
@@ -168,10 +175,10 @@ As with dgalens, publish numbers, not adjectives. Add the results table to the R
 
 Each one is a complete stopping point.
 
-1. **Offline core (1–2 weekends).** Lockfile parser, DL001–DL002, text and JSON output, the `scan` CLI, CI that runs the tests and scans deplens itself.
+1. **Offline core (1–2 weekends). Done.** Lockfile parser, DL001–DL002, text and JSON output, the `scan` CLI with `--fail-on` and `--registry`, CI that runs the tests and scans deplens itself.
 2. **Typosquatting (1 weekend).** Popular-list script, DL003, the typosquat evaluation.
 3. **Registry rules (1–2 weekends).** Registry client, recorded fixtures, DL004–DL006, `--offline`.
-4. **Diff and Action (1 weekend).** `--base`, `.deplens.json` ignores, `--fail-on`, `action.yml`, job summary.
+4. **Diff and Action (1 weekend).** `--base`, `.deplens.json` ignores, `action.yml`, job summary.
 5. **Release (1 weekend).** README with one section per signal and the evaluation results, npm release with provenance, `v1` tag.
 
 ## Later, if the evaluation or users call for it
