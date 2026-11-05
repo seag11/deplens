@@ -1,0 +1,27 @@
+{
+  // Type-checks sources and tests. Nothing is emitted: tests run directly
+  // with Node's built-in type stripping, and tsconfig.build.json compiles src/.
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    // Keep to TypeScript syntax that Node can strip without transforming
+    // (no enums, namespaces or parameter properties), and write imports
+    // with their real .ts extension so the same files run under Node and tsc.
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src", "test"]
+}

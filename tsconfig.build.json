@@ -1,0 +1,12 @@
+{
+  // Compiles src/ to dist/ for publishing. Imports ending in .ts are
+  // rewritten to .js in the output.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true
+  },
+  "include": ["src"]
+}
