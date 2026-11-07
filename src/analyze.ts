@@ -24,6 +24,11 @@ export interface AnalyzeInput {
    * mix it with a private registry.
    */
   readonly registries?: readonly string[];
+  /**
+   * Popular package names, most popular first, for the typosquat check.
+   * Defaults to none, which turns the check off.
+   */
+  readonly popularPackages?: readonly string[];
   /** The rules to run. Defaults to all of them; tests pass a subset. */
   readonly rules?: readonly Rule[];
 }
@@ -39,6 +44,7 @@ export function analyze(input: AnalyzeInput): Report {
   const rules = input.rules ?? RULES;
   const ctx: RuleContext = {
     registryHosts: new Set((input.registries ?? [DEFAULT_REGISTRY]).map((url) => new URL(url).host)),
+    popularPackages: new Set(input.popularPackages ?? []),
   };
 
   const findings: Finding[] = [];

@@ -54,6 +54,17 @@ describe("analyze", () => {
     assert.equal(report.findings[0]?.evidence["source"], "other-host");
   });
 
+  it("checks names against the popular packages it is given", () => {
+    const text = lockfileText({ "node_modules/widgetkit": registryEntry("widgetkit", "1.0.0") });
+    assert.deepEqual(analyze({ lockfile: text }).findings, []);
+
+    const findings = analyze({ lockfile: text, popularPackages: ["widget-kit"] }).findings;
+    assert.deepEqual(
+      findings.map((f) => `${f.ruleId} ${f.package.name}`),
+      ["DL003 widgetkit"],
+    );
+  });
+
   it("runs only the rules it is given", () => {
     const flagsEverything: Rule = {
       id: "TEST",

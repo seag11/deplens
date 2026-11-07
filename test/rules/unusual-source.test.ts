@@ -78,7 +78,7 @@ describe("DL002 unusual-source", () => {
   }
 
   it("trusts registries passed in the context", () => {
-    const ctx: RuleContext = { registryHosts: new Set(["npm.internal.example"]) };
+    const ctx: RuleContext = { ...defaultContext, registryHosts: new Set(["npm.internal.example"]) };
     const internal = pkg({ resolved: "https://npm.internal.example/some-lib/-/some-lib-1.0.0.tgz" });
     assert.equal(unusualSource.check(internal, ctx), undefined);
     // The public registry is no longer trusted unless it's listed too.

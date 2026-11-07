@@ -6,9 +6,10 @@
 
 import type { Rule } from "../types.ts";
 import { installScript } from "./install-script.ts";
+import { typosquat } from "./typosquat.ts";
 import { unusualSource } from "./unusual-source.ts";
 
-export const RULES: readonly Rule[] = [installScript, unusualSource];
+export const RULES: readonly Rule[] = [installScript, unusualSource, typosquat];
 
 /** Looks up a rule by its ID, such as `DL001`. */
 export function findRule(id: string): Rule | undefined {

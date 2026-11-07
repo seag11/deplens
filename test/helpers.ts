@@ -19,9 +19,13 @@ export function pkg(overrides: Partial<PackageNode> = {}): PackageNode {
   };
 }
 
-/** The context rules see by default: only the public npm registry is trusted. */
+/**
+ * The context rules see by default: only the public npm registry is trusted,
+ * and there are no popular packages to compare names against.
+ */
 export const defaultContext: RuleContext = {
   registryHosts: new Set(["registry.npmjs.org"]),
+  popularPackages: new Set(),
 };
 
 /**

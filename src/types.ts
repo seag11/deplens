@@ -67,6 +67,11 @@ export interface RuleContext {
    * `registry.npmjs.org`. Anything else counts as an unusual source.
    */
   readonly registryHosts: ReadonlySet<string>;
+  /**
+   * Names of widely used packages, most popular first. Typosquats are
+   * recognised by how closely they resemble these names.
+   */
+  readonly popularPackages: ReadonlySet<string>;
 }
 
 /**
