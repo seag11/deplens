@@ -25,7 +25,7 @@ HIGH  DL006 provenance-dropped  example-utils@2.4.1
 ## Why it's worth building
 
 - **Timely.** The large npm compromises of recent years, including self-spreading attacks that hijacked maintainer accounts, shipped as fresh versions of packages people already trusted. None had an advisory when it landed.
-- **Different signals catch different attacks.** Some compromised releases ran their payload from an install script. Others hid it in the library code itself, where an install-script check sees nothing but a check for very recent releases still fires. The README should say this plainly.
+- **Different signals catch different attacks.** Most large compromises came from an attacker gaining publishing access to a trusted package: a phished maintainer, a stolen token, or a hijacked CI workflow. Many ran their payload from an install script added to the new version. Others hid it in the library code itself, where an install-script check sees nothing but a check for very recent releases still fires. The README should say this plainly.
 - **Explainable.** deplens is a small, open tool where every finding names the facts that triggered it and says why they matter.
 - **Pairs with the CI secret scanner.** Stealing CI and npm tokens is a common goal of these attacks, and stolen tokens are how they spread. The two make a "protect your pipeline" pair of GitHub Actions.
 
@@ -43,22 +43,31 @@ Six rules. IDs are stable, so ignores and links never break.
 
 | ID | Name | Needs | Fires when | Severity |
 |---|---|---|---|---|
-| DL001 | `install-script` | lockfile | The lockfile marks the package `hasInstallScript` (preinstall, install or postinstall) | low |
+| DL001 | `install-script` | lockfile; registry to escalate | The lockfile marks the package `hasInstallScript` (preinstall, install or postinstall) | low; high if the previous version had no install script, or this version is less than 3 days old |
 | DL002 | `unusual-source` | lockfile | `resolved` is a git URL, uses `http://`, or points at a host that isn't a configured registry; or there's no `integrity` hash | medium for git; high otherwise |
-| DL003 | `typosquat` | bundled list | The name is one or two edits away from a popular package that isn't in the tree | high |
+| DL003 | `typosquat` | bundled list | The name is one or two edits away from a popular package | high |
 | DL004 | `recent-release` | registry | This version was published less than 3 days ago | medium |
-| DL005 | `new-publisher` | registry | The npm account that published this version (`_npmUser`) never published an earlier version | medium |
+| DL005 | `new-publisher` | registry | The npm account that published this version (`_npmUser`) never published an earlier version | low |
 | DL006 | `provenance-dropped` | registry | Earlier versions have provenance attestations and this one doesn't | high |
 
-Install scripts are common in legitimate packages (native binaries, compilers), so DL001 is informational on its own. The default `--fail-on high` stops a build only on the strongest signals.
+Install scripts are common in legitimate packages (native binaries, compilers), so DL001 is informational unless the script is new or the version is brand new. The default `--fail-on high` stops a build only on the strongest signals. For pull-request scans the README recommends `--fail-on medium`, which turns DL004 into a cooldown gate: a version published in the last 3 days fails the check until it has had time to be noticed and pulled if it's malicious.
+
+Checked against recent large compromises, the defaults should fail CI on an install script added to a fresh version, on a missing provenance attestation, and on a typosquatted dependency slipped into a new release. A payload hidden in library code, with no install script, is caught only by DL004, which is why the medium threshold is the recommended one for pull requests.
 
 ### Notes
 
-**"Recent maintainer changes" becomes DL005.** The registry exposes only the current maintainer list, with no history. Each version does record who published it, so "published by an account that never released this package before" can be computed from one metadata request.
+**Install scripts (DL001).** The strongest sign of a self-spreading attack is an install script appearing in a package that never had one: worms republish each victim's other packages with a script added, and legitimate packages almost never add one in a patch release. With registry metadata, DL001 compares this version's `scripts` (preinstall, install, postinstall) and `gypfile` with the version published just before it, and reports `high` if the earlier version had none. It also reports `high` when the version is less than 3 days old, since a fresh version that runs code on install is the most common shape of a compromised release. Offline, or for a package's first version, it stays `low`. The message says which case applies.
+
+**Recent releases (DL004)** is the one signal that fires for every recent large compromise, because malicious versions are usually found and pulled within hours to a few days. Waiting a few days before installing a new version (a cooldown) is now standard advice, and the major package managers have a setting for it. DL004's fix text should point to those settings (`min-release-age` in npm, `minimumReleaseAge` in pnpm), so the cause gets fixed and not only reported.
+
+**"Recent maintainer changes" becomes DL005.** The registry exposes only the current maintainer list, with no history. Each version does record who published it, so "published by an account that never released this package before" can be computed from one metadata request. Two caveats keep it at `low`:
+
+- It targets handover attacks, where a new person is given publishing rights. It doesn't catch stolen accounts or tokens, because those publish as the real maintainer. The README should say so.
+- Projects moving to trusted publishing start publishing as npm's OIDC identity instead of a person. That is a security improvement, not a risk, so a version published through trusted publishing doesn't count as a new publisher.
 
 **Typosquatting (DL003).** Compare against a bundled list of the top ~5,000 packages by weekly downloads, regenerated by a script. Use Damerau-Levenshtein distance (it counts swapped letters as one edit): distance 1 for names of up to 8 characters, 2 for longer ones. Also compare with separators removed, so `some-lib` matches `somelib`. Skip the check when the name is itself on the popular list. Use the real package name, not the lockfile key, since `npm:` aliases can make them differ.
 
-**Provenance (DL006)** reads `dist.attestations` from the version metadata. It's one of the strongest signals available, because a stolen token can publish a version but can't produce the project's CI attestation.
+**Provenance (DL006)** reads `dist.attestations` from the version metadata. It's one of the strongest signals available, because a stolen token can publish a version but can't produce the project's CI attestation. It isn't a guarantee: an attacker who hijacks the project's own CI workflow publishes with a valid attestation, so the README must not present provenance as proof that a version is safe. DL001 and DL004 still fire in that case.
 
 ## Architecture
 
@@ -125,9 +134,9 @@ function analyze(input: AnalyzeInput): Report;   // { packageCount, findings }
 
 Rules return at most one `Match` per package, and the engine turns it into a `Finding`. `why` and `fix` live on the rule, not on each finding, so the explanation is written once.
 
-Milestone 3 adds a `RegistryClient` interface (`packument(name)`), a `needsRegistry` flag on rules, and the current date as an input. At that point `analyze()` becomes async.
+Milestone 3 adds a `RegistryClient` interface (`packument(name)`), the package's registry metadata as an optional field of `RuleContext`, a `needsRegistry` flag on rules, and the current date as an input. At that point `analyze()` becomes async.
 
-With no registry client (`--offline`), the three registry rules are skipped and the report says so. The client caps concurrent requests at 8 and retries once on HTTP 429. Responses are kept in memory for the run, with no disk cache: diff mode keeps request counts small enough not to need one.
+With no registry client (`--offline`), the three registry rules are skipped and the report says so. DL001 still runs, without its escalation. The client caps concurrent requests at 8 and retries once on HTTP 429. Responses are kept in memory for the run, with no disk cache: diff mode keeps request counts small enough not to need one.
 
 ### Interface
 
@@ -150,7 +159,7 @@ The GitHub Action wraps the same `analyze()`. In a pull request it diffs against
 ```yaml
 - uses: seag11/deplens@v1
   with:
-    fail-on: high
+    fail-on: medium   # recommended for pull requests: enforces the 3-day cooldown
 ```
 
 ## Technology
@@ -162,7 +171,13 @@ TypeScript on Node ≥ 22.18 with zero runtime dependencies: `fetch`, `node:util
 - **Rules:** a table of cases per rule, built from plain objects. Rules are pure, so no mocks.
 - **Lockfile parser:** a few real lockfiles as fixtures (a small app, a workspaces monorepo, an `npm:` alias, a git dependency).
 - **analyze():** end-to-end with a fake `RegistryClient` that reads recorded JSON from `test/fixtures/registry/`, and a fixed date. No network.
-- **Attack shapes:** one synthetic fixture per pattern (hijacked account publishing a patch release, payload in an install script, git-hosted dependency, typosquat), checking that the right rule fires.
+- **Attack shapes:** one synthetic fixture per pattern, checking which rules fire and that the default and recommended thresholds give the expected result:
+  - a stolen token publishing a patch release that adds an install script, with no provenance
+  - a hijacked CI workflow publishing with valid provenance and an install script
+  - a payload in library code, with no install script
+  - a new release that adds a typosquatted dependency
+  - a git-hosted dependency
+  - a legitimate project switching to trusted publishing (should stay quiet)
 
 ## Evaluation
 
@@ -180,14 +195,13 @@ Each one is a complete stopping point.
    1. *Done.* Edit distance with an early exit at the limit, and the DL003 rule, with the popular list passed in as an input. A worst-case full scan (1,500 packages against 5,000 names) takes about 1.2 s.
    2. A script that builds the bundled popular list, used by default. npm has no "most downloaded" endpoint, so the script gathers candidate names and ranks them with the downloads API.
    3. The typosquat evaluation.
-3. **Registry rules (1–2 weekends).** Registry client, recorded fixtures, DL004–DL006, `--offline`.
+3. **Registry rules (1–2 weekends).** Registry client, recorded fixtures, DL004–DL006, DL001's escalation (install script new in this version, or on a fresh version), DL005's trusted-publishing exception, `--offline`, the attack-shape fixtures.
 4. **Diff and Action (1 weekend).** `--base`, `.deplens.json` ignores, `action.yml`, job summary.
 5. **Release (1 weekend).** README with one section per signal and the evaluation results, npm release with provenance, `v1` tag.
 
 ## Later, if the evaluation or users call for it
 
-- Escalating severity when signals appear together (an install script on a version that is also brand new).
-- More signals: suspicious install-script contents, a dependency added in a patch release, packages less than a month old.
+- More signals: suspicious install-script contents, a dependency added in a patch release, packages less than a month old, a release after a long period with no releases, a published tarball that doesn't match the source repository.
 - SARIF output for GitHub code scanning.
 - `pnpm-lock.yaml` and `yarn.lock`.
 - A disk cache for full-tree scans.
@@ -202,4 +216,6 @@ Each one is a complete stopping point.
 
 - **Too many false alarms** is the main threat to adoption. Mitigated by diff mode, low severity for common signals, and measuring noise before release.
 - **Lockfile quirks** (workspaces, links, aliases). Mitigated by testing against real lockfiles.
+- **Overstating what's caught.** No signal catches every attack: provenance can come from a hijacked pipeline, and stolen accounts publish as their owners. Mitigated by a README that says which attack shapes each signal does and doesn't catch, backed by the attack-shape fixtures.
+- **Overlap with package-manager cooldowns.** npm and pnpm can now refuse very new versions themselves. deplens still adds value by explaining the finding and by enforcing it in CI regardless of each developer's local settings, and DL004's fix text recommends turning the setting on.
 - **Package name.** Check that `deplens` is free on npm before release, and fall back to `@seag11/deplens` if it isn't.
