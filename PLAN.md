@@ -176,7 +176,10 @@ As with dgalens, publish numbers, not adjectives. Add the results table to the R
 Each one is a complete stopping point.
 
 1. **Offline core (1–2 weekends). Done.** Lockfile parser, DL001–DL002, text and JSON output, the `scan` CLI with `--fail-on` and `--registry`, CI that runs the tests and scans deplens itself.
-2. **Typosquatting (1 weekend).** Popular-list script, DL003, the typosquat evaluation.
+2. **Typosquatting (1 weekend).** In three steps:
+   1. *Done.* Edit distance with an early exit at the limit, and the DL003 rule, with the popular list passed in as an input. A worst-case full scan (1,500 packages against 5,000 names) takes about 1.2 s.
+   2. A script that builds the bundled popular list, used by default. npm has no "most downloaded" endpoint, so the script gathers candidate names and ranks them with the downloads API.
+   3. The typosquat evaluation.
 3. **Registry rules (1–2 weekends).** Registry client, recorded fixtures, DL004–DL006, `--offline`.
 4. **Diff and Action (1 weekend).** `--base`, `.deplens.json` ignores, `action.yml`, job summary.
 5. **Release (1 weekend).** README with one section per signal and the evaluation results, npm release with provenance, `v1` tag.
