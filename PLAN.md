@@ -75,17 +75,20 @@ A handful of modules with one rule: rules don't do I/O. The registry client and 
 
 ```
 src/
-  types.ts          PackageNode, Finding, Rule, Severity
+  types.ts          PackageNode, Finding, Rule, RuleContext, Report
   lockfile.ts       package-lock v2/v3 → PackageNode[] (with shortest dependency path)
-  diff.ts           base vs head → added or changed packages
-  registry.ts       RegistryClient interface + fetch implementation
-  rules/            one file per rule, plus index.ts listing them
-  analyze.ts        parse → diff → fetch metadata → run rules → apply ignores
-  report.ts         text and JSON output; Markdown for the Action summary
+  source.ts         where a package was downloaded from (shared by DL002 and the engine)
+  packument.ts      registry metadata → the few fields rules read, plus pure queries
+  registry.ts       RegistryClient interface + HTTP implementation (the only network I/O)
+  edit-distance.ts  bounded Damerau-Levenshtein distance
+  json.ts           helpers for reading untrusted JSON
+  diff.ts           base vs head → added or changed packages (milestone 4)
+  rules/            one file per rule, plus index.ts listing them; recency.ts is shared
+  analyze.ts        parse → (diff) → fetch metadata → run rules → (apply ignores)
+  report.ts         text and JSON output; Markdown for the Action summary (milestone 4)
   cli.ts            node:util parseArgs, exit codes
-  action.ts         GitHub Action entry point
-data/popular.json
-scripts/update-popular.ts
+  action.ts         GitHub Action entry point (milestone 4)
+data/popular.json   (milestone 2, from the separate list project)
 test/
 ```
 
@@ -134,9 +137,11 @@ function analyze(input: AnalyzeInput): Report;   // { packageCount, findings }
 
 Rules return at most one `Match` per package, and the engine turns it into a `Finding`. `why` and `fix` live on the rule, not on each finding, so the explanation is written once.
 
-Milestone 3 adds a `RegistryClient` interface (`packument(name)`), the package's registry metadata as an optional field of `RuleContext`, a `needsRegistry` flag on rules, and the current date as an input. At that point `analyze()` becomes async.
+`RuleContext` carries the analysis time (`now`) and this package's registry metadata (`packument`, undefined when offline or unavailable), so rules never read the clock or the network. Each rule declares `needsRegistry`, and `analyze()` is async and accepts a `RegistryClient` and a `now`.
 
-With no registry client (`--offline`), the three registry rules are skipped and the report says so. DL001 still runs, without its escalation. The client caps concurrent requests at 8 and retries once on HTTP 429. Responses are kept in memory for the run, with no disk cache: diff mode keeps request counts small enough not to need one.
+With no registry client (`--offline`), the three registry rules are skipped and the report's `warnings` say so. DL001 still runs, without its escalation. Packages whose metadata can't be fetched are checked offline and listed in a warning, so a quiet report is never mistaken for a complete one. Metadata is fetched once per package name, only for packages that came from a registry, from the registry the package was downloaded from. There is no disk cache: diff mode keeps request counts small enough not to need one.
+
+Full packuments are needed, because the abbreviated format leaves out publish times and publishers. They can be several megabytes for packages with long histories.
 
 ### Interface
 
@@ -193,9 +198,9 @@ Each one is a complete stopping point.
 1. **Offline core (1–2 weekends). Done.** Lockfile parser, DL001–DL002, text and JSON output, the `scan` CLI with `--fail-on` and `--registry`, CI that runs the tests and scans deplens itself.
 2. **Typosquatting (1 weekend).** In three steps:
    1. *Done.* Edit distance with an early exit at the limit, and the DL003 rule, with the popular list passed in as an input. A worst-case full scan (1,500 packages against 5,000 names) takes about 1.2 s.
-   2. A script that builds the bundled popular list, used by default. npm has no "most downloaded" endpoint, so the script gathers candidate names and ranks them with the downloads API.
-   3. The typosquat evaluation.
-3. **Registry rules (1–2 weekends).** Registry client, recorded fixtures, DL004–DL006, DL001's escalation (install script new in this version, or on a fresh version), DL005's trusted-publishing exception, `--offline`, the attack-shape fixtures.
+   2. Bundle a list of popular packages and use it by default. *Waiting on a separate project:* existing lists are built from share-alike (CC BY-SA) data, so the list will come from a separate MIT-licensed repository that crawls npm's registry and downloads API directly. deplens copies the published list in with an update script, keeping zero runtime dependencies.
+   3. The typosquat evaluation, once the list exists.
+3. **Registry rules (1–2 weekends). Done.** Registry client (8 concurrent requests, one retry on 429 or 5xx, 30 s timeout), DL004–DL006, DL001's escalation, DL005's trusted-publishing exception, `--offline`, warnings when registry checks couldn't run, a recorded registry fixture, and the attack-shape scenarios. An online scan of a 132-package project takes about 2.5 s.
 4. **Diff and Action (1 weekend).** `--base`, `.deplens.json` ignores, `action.yml`, job summary.
 5. **Release (1 weekend).** README with one section per signal and the evaluation results, npm release with provenance, `v1` tag.
 
@@ -216,6 +221,7 @@ Each one is a complete stopping point.
 
 - **Too many false alarms** is the main threat to adoption. Mitigated by diff mode, low severity for common signals, and measuring noise before release.
 - **Lockfile quirks** (workspaces, links, aliases). Mitigated by testing against real lockfiles.
+- **DL005 noise from organisation-wide publisher changes.** First real data point: scanning deplens's own lockfile gives 21 `low` DL005 findings, because the TypeScript project moved all of its packages to a new organisation publishing account. Accurate, but one event produces many near-identical findings. It doesn't fail CI, and diff mode will show it only on the pull request that upgrades those packages. Measure it in the noise evaluation before deciding whether DL005 or the report needs to change.
 - **Overstating what's caught.** No signal catches every attack: provenance can come from a hijacked pipeline, and stolen accounts publish as their owners. Mitigated by a README that says which attack shapes each signal does and doesn't catch, backed by the attack-shape fixtures.
 - **Overlap with package-manager cooldowns.** npm and pnpm can now refuse very new versions themselves. deplens still adds value by explaining the finding and by enforcing it in CI regardless of each developer's local settings, and DL004's fix text recommends turning the setting on.
 - **Package name.** Check that `deplens` is free on npm before release, and fall back to `@seag11/deplens` if it isn't.
