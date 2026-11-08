@@ -46,6 +46,14 @@ export function formatText(report: Report): string {
     }
   }
 
+  // Warnings go last, where they are seen after the findings, and in the
+  // clean case directly under the summary.
+  if (report.warnings.length > 0) lines.push("");
+  for (const warning of report.warnings) {
+    const [first = "", ...rest] = wrap(warning, " ".repeat(6));
+    lines.push(`note  ${first.trimStart()}`, ...rest);
+  }
+
   return lines.join("\n") + "\n";
 }
 
@@ -63,6 +71,7 @@ export function formatJson(report: Report): string {
       const rule = findRule(finding.ruleId);
       return { ...finding, why: rule?.why, fix: rule?.fix };
     }),
+    warnings: report.warnings,
   };
   return JSON.stringify(output, null, 2) + "\n";
 }

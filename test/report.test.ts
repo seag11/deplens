@@ -25,11 +25,11 @@ const gitFinding: Finding = {
   via: ["my-app", "forked-lib@1.4.0"],
 };
 
-const report: Report = { packageCount: 1204, findings: [gitFinding, scriptFinding] };
+const report: Report = { packageCount: 1204, findings: [gitFinding, scriptFinding], warnings: [] };
 
 describe("formatText", () => {
   it("says so when there are no findings", () => {
-    assert.equal(formatText({ packageCount: 1, findings: [] }), "deplens: no findings in 1 package\n");
+    assert.equal(formatText({ packageCount: 1, findings: [], warnings: [] }), "deplens: no findings in 1 package\n");
   });
 
   it("summarises counts by severity, most severe first", () => {
@@ -38,7 +38,7 @@ describe("formatText", () => {
   });
 
   it("prints each rule's explanation once, followed by its findings", () => {
-    const text = formatText({ packageCount: 2, findings: [scriptFinding, { ...scriptFinding, package: { name: "other", version: "1.0.0" } }] });
+    const text = formatText({ packageCount: 2, findings: [scriptFinding, { ...scriptFinding, package: { name: "other", version: "1.0.0" } }], warnings: [] });
     assert.equal(text.match(/^ {2}why {2}/gm)?.length, 1);
     assert.match(text, /^ {2}LOW {5}native-addon@3\.1\.0$/m);
     assert.match(text, /^ {10}via my-app > some-lib@2\.0\.0 > native-addon@3\.1\.0$/m);
@@ -57,14 +57,20 @@ describe("formatText", () => {
       assert.ok(line.length <= 80 || isOneWord, `line too long: ${line}`);
     }
   });
+
+  it("ends with warnings, so a quiet report isn't mistaken for a complete one", () => {
+    const text = formatText({ packageCount: 1, findings: [], warnings: ["Offline: skipped DL004 recent-release."] });
+    assert.equal(text, "deplens: no findings in 1 package\n\nnote  Offline: skipped DL004 recent-release.\n");
+  });
 });
 
 describe("formatJson", () => {
-  it("includes counts, findings and each rule's explanation", () => {
-    const output = JSON.parse(formatJson(report));
+  it("includes counts, findings, each rule's explanation and warnings", () => {
+    const output = JSON.parse(formatJson({ ...report, warnings: ["a warning"] }));
     assert.equal(output.schemaVersion, 1);
     assert.equal(output.packageCount, 1204);
     assert.deepEqual(output.summary, { low: 1, medium: 1, high: 0 });
     assert.deepEqual(output.findings[1], { ...scriptFinding, why: installScript.why, fix: installScript.fix });
+    assert.deepEqual(output.warnings, ["a warning"]);
   });
 });

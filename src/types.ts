@@ -1,10 +1,12 @@
 /**
  * Core types shared by every part of deplens.
  *
- * This module holds no logic and imports nothing, so the parser, the rules,
- * the reporters and the CLI can all depend on it without depending on each
- * other.
+ * This module holds no logic, so the parser, the rules, the reporters and the
+ * CLI can all depend on it without depending on each other. Its only import
+ * is the Packument type, which the registry rules read.
  */
+
+import type { Packument } from "./packument.ts";
 
 /**
  * How much a finding matters, lowest first. The order is significant:
@@ -58,10 +60,21 @@ export interface Lockfile {
 }
 
 /**
- * Settings that rules read. They live in one object so that new settings
- * don't change any rule's signature.
+ * Everything a rule can read besides the package itself. It lives in one
+ * object so that adding a field doesn't change any rule's signature.
  */
 export interface RuleContext {
+  /**
+   * The time of the analysis. Rules compare publish times against this
+   * instead of reading the clock, so tests can fix the date.
+   */
+  readonly now: Date;
+  /**
+   * This package's registry metadata. Undefined when offline, when the
+   * package didn't come from a registry, or when the registry couldn't be
+   * reached; rules that need it then stay quiet.
+   */
+  readonly packument: Packument | undefined;
   /**
    * Hostnames that packages may be downloaded from, such as
    * `registry.npmjs.org`. Anything else counts as an unusual source.
@@ -98,6 +111,11 @@ export interface Rule {
   readonly id: string;
   /** Short kebab-case name such as `install-script`. */
   readonly name: string;
+  /**
+   * True when the rule can't say anything without registry metadata. Such
+   * rules are listed as skipped when deplens runs offline.
+   */
+  readonly needsRegistry: boolean;
   /** Why this signal matters. Written once here and shown with findings. */
   readonly why: string;
   /** What to do about it. */
@@ -124,4 +142,10 @@ export interface Report {
   readonly packageCount: number;
   /** Findings ordered by severity (highest first), then rule, then package. */
   readonly findings: readonly Finding[];
+  /**
+   * Things that limited the analysis, such as running offline or a registry
+   * that couldn't be reached. Shown so a quiet report isn't mistaken for a
+   * complete one.
+   */
+  readonly warnings: readonly string[];
 }

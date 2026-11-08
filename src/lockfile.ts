@@ -16,6 +16,7 @@
  * up towards the project root.
  */
 
+import { asString, isObject } from "./json.ts";
 import type { Lockfile, PackageNode } from "./types.ts";
 
 /** The lockfile can't be read: invalid JSON, wrong shape or unsupported version. */
@@ -275,12 +276,4 @@ function packageName(location: string, entry: Entry | undefined): string {
 /** True for locations inside a node_modules folder. */
 function isInstalled(location: string): boolean {
   return location.startsWith(NODE_MODULES) || location.includes(`/${NODE_MODULES}`);
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }

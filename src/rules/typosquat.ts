@@ -31,6 +31,7 @@ type Similarity =
 export const typosquat: Rule = {
   id: "DL003",
   name: "typosquat",
+  needsRegistry: false,
 
   why:
     "Typosquatting means publishing a malicious package under a name one " +

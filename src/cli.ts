@@ -17,6 +17,7 @@ import { parseArgs } from "node:util";
 
 import { analyze, DEFAULT_REGISTRY } from "./analyze.ts";
 import { LockfileError } from "./lockfile.ts";
+import { HttpRegistryClient, type RegistryClient } from "./registry.ts";
 import { formatJson, formatText } from "./report.ts";
 import { isAtLeast, isSeverity } from "./severity.ts";
 import { SEVERITIES } from "./types.ts";
@@ -36,6 +37,19 @@ const processIo: Io = {
   stderr: (text) => process.stderr.write(text),
 };
 
+/** The outside world the CLI depends on. Tests pass fakes. */
+export interface Environment {
+  /** Creates the client used for registry metadata (unless --offline). */
+  readonly createRegistry: () => RegistryClient;
+  /** The current time. */
+  readonly now: () => Date;
+}
+
+const realEnvironment: Environment = {
+  createRegistry: () => new HttpRegistryClient(),
+  now: () => new Date(),
+};
+
 /** Lockfile names in the order npm prefers them. */
 const LOCKFILE_NAMES = ["npm-shrinkwrap.json", "package-lock.json"];
 
@@ -49,6 +63,8 @@ Options:
                         severe: ${SEVERITIES.join(", ")} (default: high)
   --registry <url>      A registry packages may come from. Repeat for several.
                         (default: ${DEFAULT_REGISTRY})
+  --offline             Don't contact the registry. Checks that need registry
+                        metadata are skipped.
   --json                Print the report as JSON
   -h, --help            Show this help
   --version             Show the version
@@ -59,10 +75,17 @@ class UsageError extends Error {
   override name = "UsageError";
 }
 
-/** Runs the CLI with the given arguments (without `node` and the script path). */
-export function main(argv: readonly string[], io: Io = processIo): number {
+/**
+ * Runs the CLI with the given arguments (without `node` and the script path)
+ * and resolves to the exit code.
+ */
+export async function main(
+  argv: readonly string[],
+  io: Io = processIo,
+  env: Environment = realEnvironment,
+): Promise<number> {
   try {
-    return run(argv, io);
+    return await run(argv, io, env);
   } catch (error) {
     if (error instanceof UsageError) {
       io.stderr(`deplens: ${error.message}\n\n${USAGE}`);
@@ -77,7 +100,7 @@ export function main(argv: readonly string[], io: Io = processIo): number {
   }
 }
 
-function run(argv: readonly string[], io: Io): number {
+async function run(argv: readonly string[], io: Io, env: Environment): Promise<number> {
   const { values, positionals } = parseCommandLine(argv);
 
   if (values.help) {
@@ -105,7 +128,12 @@ function run(argv: readonly string[], io: Io): number {
     if (!URL.canParse(registry)) throw new UsageError(`--registry "${registry}" isn't a valid URL`);
   }
 
-  const report = analyze({ lockfile: readLockfile(dir), registries });
+  const report = await analyze({
+    lockfile: readLockfile(dir),
+    registries,
+    ...(values.offline ? {} : { registry: env.createRegistry() }),
+    now: env.now(),
+  });
   io.stdout(values.json ? formatJson(report) : formatText(report));
 
   const failing = report.findings.some((finding) => isAtLeast(finding.severity, failOn));
@@ -120,6 +148,7 @@ function parseCommandLine(argv: readonly string[]) {
       options: {
         "fail-on": { type: "string", default: "high" },
         registry: { type: "string", multiple: true },
+        offline: { type: "boolean", default: false },
         json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
         version: { type: "boolean", default: false },
