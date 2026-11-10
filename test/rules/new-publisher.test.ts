@@ -7,12 +7,21 @@ import { daysAgo, defaultContext, packumentOf, pkg, version, withPackument } fro
 
 const by = (name: string, trusted = false) => ({ publisher: { name, trusted } });
 
-/** Checks the last of the given versions, each published a day after the one before. */
-function checkLatest(...versions: VersionInfo[]) {
-  const dated = versions.map((info, i) => ({ ...info, publishedAt: daysAgo(100 - i) }));
+/**
+ * Checks the last of the given versions. They are published a week apart,
+ * the last one `latestAgeDays` ago.
+ */
+function checkLatestAt(latestAgeDays: number, ...versions: VersionInfo[]) {
+  const dated = versions.map((info, i) => ({
+    ...info,
+    publishedAt: daysAgo(latestAgeDays + 7 * (versions.length - 1 - i)),
+  }));
   const latest = dated.at(-1)!;
   return newPublisher.check(pkg({ version: latest.version }), withPackument(packumentOf("some-lib", dated)));
 }
+
+/** Checks the last of the given versions, published a week ago. */
+const checkLatest = (...versions: VersionInfo[]) => checkLatestAt(7, ...versions);
 
 describe("DL005 new-publisher", () => {
   it("flags a publisher who never published an earlier version, as low", () => {
@@ -22,8 +31,32 @@ describe("DL005 new-publisher", () => {
       version("1.2.0", by("mallory")),
     );
     assert.equal(match?.severity, "low");
-    assert.equal(match?.message, 'Published by "mallory", who didn\'t publish any of the 2 earlier versions');
-    assert.deepEqual(match?.evidence, { publisher: "mallory", earlierVersions: 2, earlierPublishers: "alice, bob" });
+    assert.equal(
+      match?.message,
+      'Published 7 days ago by "mallory", who didn\'t publish any of the 2 earlier versions',
+    );
+    assert.deepEqual(match?.evidence, {
+      publisher: "mallory",
+      earlierVersions: 2,
+      earlierPublishers: "alice, bob",
+      ageHours: 168,
+    });
+  });
+
+  it("flags only versions published in the last 90 days", () => {
+    const history = [version("1.0.0", by("alice")), version("1.1.0", by("mallory"))];
+    assert.ok(checkLatestAt(89, ...history));
+    // Public for 90 days without being pulled: an old, ordinary handover.
+    assert.equal(checkLatestAt(90, ...history), undefined);
+    assert.equal(checkLatestAt(2_500, ...history), undefined);
+  });
+
+  it("stays quiet when the version's publish time is unknown", () => {
+    const packument = packumentOf("some-lib", [
+      version("1.0.0", { ...by("alice"), publishedAt: daysAgo(30) }),
+      version("1.1.0", { ...by("mallory"), publishedAt: undefined }),
+    ]);
+    assert.equal(newPublisher.check(pkg({ version: "1.1.0" }), withPackument(packument)), undefined);
   });
 
   it("accepts any earlier publisher, not just the most recent", () => {

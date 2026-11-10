@@ -91,7 +91,9 @@ To wait automatically everywhere, also set a minimum release age in your package
 
 ### DL005 new-publisher
 
-The version was published by an npm account that never published an earlier version. That can mean the package changed hands, which is how some attacks begin. It is `low` because projects also change publishers for ordinary reasons, such as a new maintainer or a move to an organisation account. Versions published through trusted publishing (by the project's CI) never count as a new publisher.
+The version was published in the last 90 days by an npm account that never published an earlier version. That can mean the package changed hands, which is how some attacks begin. It is `low` because projects also change publishers for ordinary reasons, such as a new maintainer or a move to an organisation account. Versions published through trusted publishing (by the project's CI) never count as a new publisher.
+
+Older versions aren't flagged: a release that has been public for months without being pulled has had time to be scrutinised, and flagging it would mostly repeat ordinary maintainer changes from long ago.
 
 **What it doesn't catch:** stolen accounts and tokens publish as the real maintainer, so they look like any other release here. DL001, DL004 and DL006 cover those.
 
