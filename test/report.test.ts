@@ -58,6 +58,14 @@ describe("formatText", () => {
     }
   });
 
+  it("says how many packages changed when comparing against a base", () => {
+    const firstLine = (changedCount: number, findings: Finding[] = []) =>
+      formatText({ packageCount: 1204, changedCount, findings, warnings: [] }).split("\n")[0];
+    assert.equal(firstLine(14, [gitFinding]), "deplens: 1 finding in 14 changed packages of 1,204 (1 medium)");
+    assert.equal(firstLine(1), "deplens: no findings in 1 changed package of 1,204");
+    assert.equal(firstLine(0), "deplens: no packages changed since the base (1,204 in total)");
+  });
+
   it("ends with warnings, so a quiet report isn't mistaken for a complete one", () => {
     const text = formatText({ packageCount: 1, findings: [], warnings: ["Offline: skipped DL004 recent-release."] });
     assert.equal(text, "deplens: no findings in 1 package\n\nnote  Offline: skipped DL004 recent-release.\n");
@@ -72,5 +80,11 @@ describe("formatJson", () => {
     assert.deepEqual(output.summary, { low: 1, medium: 1, high: 0 });
     assert.deepEqual(output.findings[1], { ...scriptFinding, why: installScript.why, fix: installScript.fix });
     assert.deepEqual(output.warnings, ["a warning"]);
+    // A full scan has no changedCount.
+    assert.equal("changedCount" in output, false);
+  });
+
+  it("includes changedCount when comparing against a base", () => {
+    assert.equal(JSON.parse(formatJson({ ...report, changedCount: 3 })).changedCount, 3);
   });
 });

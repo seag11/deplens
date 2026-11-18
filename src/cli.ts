@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { analyze, DEFAULT_REGISTRY } from "./analyze.ts";
+import { GitError, readFileAtMergeBase } from "./git.ts";
 import { LockfileError } from "./lockfile.ts";
 import { HttpRegistryClient, type RegistryClient } from "./registry.ts";
 import { formatJson, formatText } from "./report.ts";
@@ -59,6 +60,8 @@ Scans the npm lockfile in dir (default: the current folder) for supply chain
 risk signals.
 
 Options:
+  --base <git-ref>      Check only packages added or changed since the current
+                        branch split from this ref, such as origin/main
   --fail-on <severity>  Exit with code 1 if any finding is at least this
                         severe: ${SEVERITIES.join(", ")} (default: high)
   --registry <url>      A registry packages may come from. Repeat for several.
@@ -89,7 +92,7 @@ export async function main(
   } catch (error) {
     if (error instanceof UsageError) {
       io.stderr(`deplens: ${error.message}\n\n${USAGE}`);
-    } else if (error instanceof LockfileError) {
+    } else if (error instanceof LockfileError || error instanceof GitError) {
       io.stderr(`deplens: ${error.message}\n`);
     } else {
       // Anything else is a bug. Print the stack so it can be reported, and
@@ -128,8 +131,16 @@ async function run(argv: readonly string[], io: Io, env: Environment): Promise<n
     if (!URL.canParse(registry)) throw new UsageError(`--registry "${registry}" isn't a valid URL`);
   }
 
+  const lockfile = readLockfile(dir);
+  // The base lockfile is read where the current branch split from --base,
+  // under the same file name as the current lockfile. If there was none by
+  // that name, every package counts as new.
+  const base =
+    values.base === undefined ? undefined : { lockfile: readFileAtMergeBase(dir, values.base, lockfile.name) };
+
   const report = await analyze({
-    lockfile: readLockfile(dir),
+    lockfile: lockfile.text,
+    ...(base ? { base } : {}),
     registries,
     ...(values.offline ? {} : { registry: env.createRegistry() }),
     now: env.now(),
@@ -146,6 +157,7 @@ function parseCommandLine(argv: readonly string[]) {
       args: [...argv],
       allowPositionals: true,
       options: {
+        base: { type: "string" },
         "fail-on": { type: "string", default: "high" },
         registry: { type: "string", multiple: true },
         offline: { type: "boolean", default: false },
@@ -160,11 +172,11 @@ function parseCommandLine(argv: readonly string[]) {
   }
 }
 
-/** Reads the lockfile npm would use in `dir`. */
-function readLockfile(dir: string): string {
+/** Reads the lockfile npm would use in `dir`, returning its file name and text. */
+function readLockfile(dir: string): { name: string; text: string } {
   for (const name of LOCKFILE_NAMES) {
     const path = join(dir, name);
-    if (existsSync(path)) return readFileSync(path, "utf8");
+    if (existsSync(path)) return { name, text: readFileSync(path, "utf8") };
   }
   throw new LockfileError(
     `No package-lock.json or npm-shrinkwrap.json in ${dir}. ` +

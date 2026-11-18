@@ -138,8 +138,13 @@ export interface Finding {
 
 /** The result of one analysis. */
 export interface Report {
-  /** Number of distinct packages checked. */
+  /** Number of distinct packages in the lockfile. */
   readonly packageCount: number;
+  /**
+   * When comparing against a base, the number of packages that were new or
+   * changed, which are the only ones checked. Absent for a full scan.
+   */
+  readonly changedCount?: number;
   /** Findings ordered by severity (highest first), then rule, then package. */
   readonly findings: readonly Finding[];
   /**

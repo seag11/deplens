@@ -1,7 +1,8 @@
 /**
  * The analysis engine and deplens's main library entry point.
  *
- * analyze() parses a lockfile, fetches registry metadata for the packages
+ * analyze() parses a lockfile, optionally narrows it to the packages that
+ * changed since a base lockfile, fetches registry metadata for the packages
  * that came from a registry, runs every rule against every package, and
  * returns the findings in a stable order.
  *
@@ -10,7 +11,8 @@
  * the CLI, a GitHub Action and tests all share the same engine.
  */
 
-import { parseLockfile } from "./lockfile.ts";
+import { changedPackages } from "./diff.ts";
+import { LockfileError, parseLockfile } from "./lockfile.ts";
 import type { Packument } from "./packument.ts";
 import type { RegistryClient } from "./registry.ts";
 import { RULES } from "./rules/index.ts";
@@ -27,6 +29,13 @@ const MAX_NAMES_IN_WARNING = 5;
 export interface AnalyzeInput {
   /** The text of a package-lock.json or npm-shrinkwrap.json. */
   readonly lockfile: string;
+  /**
+   * A base to compare against, such as the lockfile on the target branch of
+   * a pull request. When given, only packages that are new or changed since
+   * the base are checked. `lockfile` is undefined when the base had no
+   * lockfile, which makes every package new.
+   */
+  readonly base?: { readonly lockfile: string | undefined };
   /**
    * Registry URLs that packages may come from. Defaults to the public npm
    * registry. Pass every registry you use, including the public one if you
@@ -55,15 +64,26 @@ export interface AnalyzeInput {
  * Registry failures don't fail the analysis: the affected packages are
  * checked without registry metadata and the report's warnings list them.
  *
- * @throws LockfileError if the lockfile can't be parsed.
+ * @throws LockfileError if the lockfile or the base lockfile can't be parsed.
  * @throws TypeError if a registry isn't a valid URL.
  */
 export async function analyze(input: AnalyzeInput): Promise<Report> {
-  const { packages } = parseLockfile(input.lockfile);
+  const all = parseLockfile(input.lockfile).packages;
   const rules = input.rules ?? RULES;
   const registries = input.registries ?? [DEFAULT_REGISTRY];
   const registryHosts = new Set(registries.map((url) => new URL(url).host));
   const warnings: string[] = [];
+
+  // With a base, everything below (registry requests included) only sees
+  // the packages that changed.
+  let packages = all;
+  if (input.base !== undefined) {
+    if (input.base.lockfile === undefined) {
+      warnings.push("The base had no lockfile, so every package counts as new.");
+    } else {
+      packages = changedPackages(all, parseBaseLockfile(input.base.lockfile));
+    }
+  }
 
   let packuments = new Map<string, Packument>();
   if (input.registry === undefined) {
@@ -101,7 +121,22 @@ export async function analyze(input: AnalyzeInput): Promise<Report> {
     }
   }
 
-  return { packageCount: packages.length, findings: findings.sort(compareFindings), warnings };
+  return {
+    packageCount: all.length,
+    ...(input.base !== undefined ? { changedCount: packages.length } : {}),
+    findings: findings.sort(compareFindings),
+    warnings,
+  };
+}
+
+/** Parses the base lockfile, saying which lockfile is at fault if it can't be read. */
+function parseBaseLockfile(text: string): readonly PackageNode[] {
+  try {
+    return parseLockfile(text).packages;
+  } catch (error) {
+    if (error instanceof LockfileError) throw new LockfileError(`The base lockfile can't be read: ${error.message}`);
+    throw error;
+  }
 }
 
 /**

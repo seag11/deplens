@@ -66,6 +66,8 @@ export function formatJson(report: Report): string {
   const output = {
     schemaVersion: 1,
     packageCount: report.packageCount,
+    // Present only when comparing against a base (JSON drops undefined).
+    changedCount: report.changedCount,
     summary: countBySeverity(report.findings),
     findings: report.findings.map((finding) => {
       const rule = findRule(finding.ruleId);
@@ -76,9 +78,21 @@ export function formatJson(report: Report): string {
   return JSON.stringify(output, null, 2) + "\n";
 }
 
+/**
+ * The first line of text output, such as
+ * `deplens: 2 findings in 412 packages (1 high, 1 low)`, or when comparing
+ * against a base, `deplens: 1 finding in 14 changed packages of 1,203 (1 high)`.
+ */
 function summaryLine(report: Report): string {
-  const packages = plural(report.packageCount, "package");
-  if (report.findings.length === 0) return `deplens: no findings in ${packages}`;
+  if (report.changedCount === 0) {
+    return `deplens: no packages changed since the base (${formatCount(report.packageCount)} in total)`;
+  }
+
+  const scope =
+    report.changedCount === undefined
+      ? plural(report.packageCount, "package")
+      : `${plural(report.changedCount, "changed package")} of ${formatCount(report.packageCount)}`;
+  if (report.findings.length === 0) return `deplens: no findings in ${scope}`;
 
   const counts = countBySeverity(report.findings);
   const breakdown = [...SEVERITIES]
@@ -86,7 +100,7 @@ function summaryLine(report: Report): string {
     .filter((severity) => counts[severity] > 0)
     .map((severity) => `${counts[severity]} ${severity}`)
     .join(", ");
-  return `deplens: ${plural(report.findings.length, "finding")} in ${packages} (${breakdown})`;
+  return `deplens: ${plural(report.findings.length, "finding")} in ${scope} (${breakdown})`;
 }
 
 function countBySeverity(findings: readonly Finding[]): Record<Severity, number> {
@@ -132,5 +146,10 @@ function wrap(text: string, indent: string): string[] {
 }
 
 function plural(count: number, noun: string): string {
-  return `${count.toLocaleString("en-US")} ${noun}${count === 1 ? "" : "s"}`;
+  return `${formatCount(count)} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** 1204 → "1,204", the same in every locale so output is stable. */
+function formatCount(count: number): string {
+  return count.toLocaleString("en-US");
 }

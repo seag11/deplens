@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { EXIT_ERROR, EXIT_FINDINGS, EXIT_OK, main, type Environment } from "../src/cli.ts";
 import type { RegistryClient } from "../src/registry.ts";
 import { daysAgo, fakeRegistry, hoursAgo, NOW, packumentOf, version } from "./helpers.ts";
+import { tempRepo, type TempRepo } from "./temp-repo.ts";
 
 const fixture = (name: string) => fileURLToPath(new URL(`fixtures/${name}`, import.meta.url));
 
@@ -100,6 +103,41 @@ describe("deplens scan", () => {
     const { stdout, registryCreated } = await run(["scan", CLEAN, "--offline"]);
     assert.equal(registryCreated, false);
     assert.match(stdout, /^note {2}Offline: skipped DL004 recent-release/m);
+  });
+
+  describe("--base", () => {
+    let repo: TempRepo;
+    const lockfileOf = (name: string) => readFileSync(join(fixture(name), "package-lock.json"), "utf8");
+
+    // Base commit: the clean app (some-lib only). Head: the script-only app's
+    // lockfile, which swaps some-lib for native-addon, committed on top.
+    before(() => {
+      repo = tempRepo();
+      repo.write("package-lock.json", lockfileOf("clean-app"));
+      repo.commit("base");
+      repo.write("package-lock.json", lockfileOf("script-only-app"));
+      repo.commit("head");
+    });
+    after(() => repo.remove());
+
+    it("checks only packages changed since the ref", async () => {
+      const { code, stdout } = await run(["scan", repo.dir, "--base", "HEAD~1", "--fail-on", "low"]);
+      assert.match(stdout, /^deplens: 1 finding in 1 changed package of 1 \(1 low\)$/m);
+      assert.match(stdout, /native-addon@3\.1\.0/);
+      assert.equal(code, EXIT_FINDINGS);
+    });
+
+    it("finds nothing to check against the current commit", async () => {
+      const { code, stdout } = await run(["scan", repo.dir, "--base", "HEAD", "--fail-on", "low"]);
+      assert.equal(stdout, "deplens: no packages changed since the base (1 in total)\n");
+      assert.equal(code, EXIT_OK);
+    });
+
+    it("explains a ref that doesn't exist", async () => {
+      const { code, stderr } = await run(["scan", repo.dir, "--base", "origin/main"]);
+      assert.equal(code, EXIT_ERROR);
+      assert.match(stderr, /"origin\/main" isn't a commit in this repository/);
+    });
   });
 
   it("prints JSON with --json", async () => {

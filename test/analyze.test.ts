@@ -78,6 +78,51 @@ describe("analyze", () => {
     );
   });
 
+  describe("against a base", () => {
+    const base = lockfileText({
+      "node_modules/kept": registryEntry("kept", "1.0.0", { hasInstallScript: true }),
+      "node_modules/bumped": registryEntry("bumped", "1.0.0"),
+    });
+    const head = lockfileText({
+      "node_modules/kept": registryEntry("kept", "1.0.0", { hasInstallScript: true }),
+      "node_modules/bumped": registryEntry("bumped", "1.1.0", { hasInstallScript: true }),
+    });
+
+    it("checks only new and changed packages", async () => {
+      const report = await analyze({ lockfile: head, base: { lockfile: base } });
+      assert.equal(report.packageCount, 2);
+      assert.equal(report.changedCount, 1);
+      // kept's install script was already there, so only bumped is reported.
+      assert.deepEqual(
+        report.findings.map((f) => `${f.ruleId} ${f.package.name}@${f.package.version}`),
+        ["DL001 bumped@1.1.0"],
+      );
+    });
+
+    it("fetches registry metadata only for changed packages", async () => {
+      const { client, requests } = fakeRegistry([]);
+      await analyze({ lockfile: head, base: { lockfile: base }, registry: client, now: NOW });
+      assert.deepEqual(
+        requests.map((r) => r.name),
+        ["bumped"],
+      );
+    });
+
+    it("treats every package as new when the base had no lockfile, and says so", async () => {
+      const report = await analyze({ lockfile: head, base: { lockfile: undefined } });
+      assert.equal(report.changedCount, 2);
+      assert.match(report.warnings[0] ?? "", /base had no lockfile/);
+    });
+
+    it("says which lockfile is at fault when the base can't be read", async () => {
+      await assert.rejects(analyze({ lockfile: head, base: { lockfile: "{ nope" } }), /The base lockfile can't be read/);
+    });
+
+    it("leaves changedCount out of a full scan", async () => {
+      assert.equal((await analyze({ lockfile: head })).changedCount, undefined);
+    });
+  });
+
   describe("offline", () => {
     it("warns which registry rules were skipped", async () => {
       const report = await analyze({ lockfile: lockfileText({}) });
