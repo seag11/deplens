@@ -25,11 +25,11 @@ const gitFinding: Finding = {
   via: ["my-app", "forked-lib@1.4.0"],
 };
 
-const report: Report = { packageCount: 1204, findings: [gitFinding, scriptFinding], warnings: [] };
+const report: Report = { packageCount: 1204, findings: [gitFinding, scriptFinding], ignored: [], warnings: [] };
 
 describe("formatText", () => {
   it("says so when there are no findings", () => {
-    assert.equal(formatText({ packageCount: 1, findings: [], warnings: [] }), "deplens: no findings in 1 package\n");
+    assert.equal(formatText({ packageCount: 1, findings: [], ignored: [], warnings: [] }), "deplens: no findings in 1 package\n");
   });
 
   it("summarises counts by severity, most severe first", () => {
@@ -38,7 +38,7 @@ describe("formatText", () => {
   });
 
   it("prints each rule's explanation once, followed by its findings", () => {
-    const text = formatText({ packageCount: 2, findings: [scriptFinding, { ...scriptFinding, package: { name: "other", version: "1.0.0" } }], warnings: [] });
+    const text = formatText({ packageCount: 2, findings: [scriptFinding, { ...scriptFinding, package: { name: "other", version: "1.0.0" } }], ignored: [], warnings: [] });
     assert.equal(text.match(/^ {2}why {2}/gm)?.length, 1);
     assert.match(text, /^ {2}LOW {5}native-addon@3\.1\.0$/m);
     assert.match(text, /^ {10}via my-app > some-lib@2\.0\.0 > native-addon@3\.1\.0$/m);
@@ -60,21 +60,35 @@ describe("formatText", () => {
 
   it("says how many packages changed when comparing against a base", () => {
     const firstLine = (changedCount: number, findings: Finding[] = []) =>
-      formatText({ packageCount: 1204, changedCount, findings, warnings: [] }).split("\n")[0];
+      formatText({ packageCount: 1204, changedCount, findings, ignored: [], warnings: [] }).split("\n")[0];
     assert.equal(firstLine(14, [gitFinding]), "deplens: 1 finding in 14 changed packages of 1,204 (1 medium)");
     assert.equal(firstLine(1), "deplens: no findings in 1 changed package of 1,204");
     assert.equal(firstLine(0), "deplens: no packages changed since the base (1,204 in total)");
   });
 
   it("ends with warnings, so a quiet report isn't mistaken for a complete one", () => {
-    const text = formatText({ packageCount: 1, findings: [], warnings: ["Offline: skipped DL004 recent-release."] });
+    const text = formatText({ packageCount: 1, findings: [], ignored: [], warnings: ["Offline: skipped DL004 recent-release."] });
     assert.equal(text, "deplens: no findings in 1 package\n\nnote  Offline: skipped DL004 recent-release.\n");
+  });
+
+  it("lists ignored findings with their reasons, without counting them", () => {
+    const text = formatText({
+      packageCount: 1,
+      findings: [],
+      ignored: [{ ...gitFinding, ignoreReason: "Our fork, pinned to a reviewed commit" }],
+      warnings: [],
+    });
+    assert.equal(
+      text,
+      "deplens: no findings in 1 package\n\n" +
+        "ignored  DL002 forked-lib@1.4.0: Our fork, pinned to a reviewed commit\n",
+    );
   });
 });
 
 describe("formatJson", () => {
   it("includes counts, findings, each rule's explanation and warnings", () => {
-    const output = JSON.parse(formatJson({ ...report, warnings: ["a warning"] }));
+    const output = JSON.parse(formatJson({ ...report, ignored: [], warnings: ["a warning"] }));
     assert.equal(output.schemaVersion, 1);
     assert.equal(output.packageCount, 1204);
     assert.deepEqual(output.summary, { low: 1, medium: 1, high: 0 });
@@ -86,5 +100,10 @@ describe("formatJson", () => {
 
   it("includes changedCount when comparing against a base", () => {
     assert.equal(JSON.parse(formatJson({ ...report, changedCount: 3 })).changedCount, 3);
+  });
+
+  it("includes ignored findings with their reasons", () => {
+    const ignored = [{ ...gitFinding, ignoreReason: "Our fork" }];
+    assert.deepEqual(JSON.parse(formatJson({ ...report, ignored })).ignored, ignored);
   });
 });

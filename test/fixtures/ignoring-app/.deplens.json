@@ -1,0 +1,15 @@
+{
+  "ignore": [
+    {
+      "rule": "DL002",
+      "package": "old-mirror-lib",
+      "version": "0.9.0",
+      "reason": "Served by our internal mirror over the private network; replacing it is tracked separately"
+    },
+    {
+      "rule": "DL002",
+      "package": "forked-lib",
+      "reason": "Our fork, pinned to a reviewed commit"
+    }
+  ]
+}

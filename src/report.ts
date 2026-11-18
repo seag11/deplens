@@ -46,6 +46,14 @@ export function formatText(report: Report): string {
     }
   }
 
+  // Accepted findings are listed, with their reasons, so nothing is hidden.
+  if (report.ignored.length > 0) lines.push("");
+  for (const finding of report.ignored) {
+    const pkg = `${finding.package.name}@${finding.package.version}`;
+    const [first = "", ...rest] = wrap(`${finding.ruleId} ${pkg}: ${finding.ignoreReason}`, " ".repeat(9));
+    lines.push(`ignored  ${first.trimStart()}`, ...rest);
+  }
+
   // Warnings go last, where they are seen after the findings, and in the
   // clean case directly under the summary.
   if (report.warnings.length > 0) lines.push("");
@@ -73,6 +81,7 @@ export function formatJson(report: Report): string {
       const rule = findRule(finding.ruleId);
       return { ...finding, why: rule?.why, fix: rule?.fix };
     }),
+    ignored: report.ignored,
     warnings: report.warnings,
   };
   return JSON.stringify(output, null, 2) + "\n";

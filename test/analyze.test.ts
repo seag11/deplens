@@ -60,6 +60,25 @@ describe("analyze", () => {
     );
   });
 
+  it("moves accepted findings to the ignored list", async () => {
+    const text = lockfileText({
+      "node_modules/a": registryEntry("a", "1.0.0", { hasInstallScript: true }),
+      "node_modules/b": registryEntry("b", "1.0.0", { hasInstallScript: true }),
+    });
+    const report = await analyze({
+      lockfile: text,
+      ignore: [{ rule: "DL001", package: "a", reason: "Reviewed its build script" }],
+    });
+    assert.deepEqual(
+      report.findings.map((f) => f.package.name),
+      ["b"],
+    );
+    assert.deepEqual(
+      report.ignored.map((f) => `${f.ruleId} ${f.package.name}: ${f.ignoreReason}`),
+      ["DL001 a: Reviewed its build script"],
+    );
+  });
+
   it("runs only the rules it is given", async () => {
     const flagsEverything: Rule = {
       id: "TEST",

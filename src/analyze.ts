@@ -3,15 +3,18 @@
  *
  * analyze() parses a lockfile, optionally narrows it to the packages that
  * changed since a base lockfile, fetches registry metadata for the packages
- * that came from a registry, runs every rule against every package, and
- * returns the findings in a stable order.
+ * that came from a registry, runs every rule against every package, sets
+ * aside findings the configuration accepts, and returns the rest in a stable
+ * order.
  *
  * It reads no files and never touches the network directly: the caller
  * passes in the lockfile text and, to go online, a RegistryClient. That lets
  * the CLI, a GitHub Action and tests all share the same engine.
  */
 
+import type { IgnoreRule } from "./config.ts";
 import { changedPackages } from "./diff.ts";
+import { applyIgnores } from "./ignore.ts";
 import { LockfileError, parseLockfile } from "./lockfile.ts";
 import type { Packument } from "./packument.ts";
 import type { RegistryClient } from "./registry.ts";
@@ -54,6 +57,11 @@ export interface AnalyzeInput {
    * Defaults to none, which turns the check off.
    */
   readonly popularPackages?: readonly string[];
+  /**
+   * Findings to accept, usually from `.deplens.json`. Accepted findings are
+   * moved to the report's `ignored` list instead of being dropped.
+   */
+  readonly ignore?: readonly IgnoreRule[];
   /** The rules to run. Defaults to all of them; tests pass a subset. */
   readonly rules?: readonly Rule[];
 }
@@ -121,10 +129,14 @@ export async function analyze(input: AnalyzeInput): Promise<Report> {
     }
   }
 
+  // Ignores are applied last, so rules never need to know about them.
+  const { reported, ignored } = applyIgnores(findings.sort(compareFindings), input.ignore ?? []);
+
   return {
     packageCount: all.length,
     ...(input.base !== undefined ? { changedCount: packages.length } : {}),
-    findings: findings.sort(compareFindings),
+    findings: reported,
+    ignored,
     warnings,
   };
 }

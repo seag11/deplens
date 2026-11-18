@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -137,6 +138,30 @@ describe("deplens scan", () => {
       const { code, stderr } = await run(["scan", repo.dir, "--base", "origin/main"]);
       assert.equal(code, EXIT_ERROR);
       assert.match(stderr, /"origin\/main" isn't a commit in this repository/);
+    });
+  });
+
+  describe(".deplens.json", () => {
+    it("accepts the listed findings: they're shown with reasons but don't fail the run", async () => {
+      // ignoring-app is risky-app plus a .deplens.json accepting both DL002 findings.
+      const { code, stdout } = await run(["scan", fixture("ignoring-app")]);
+      assert.match(stdout, /^deplens: 1 finding in 4 packages \(1 low\)$/m);
+      assert.match(stdout, /^ignored {2}DL002 old-mirror-lib@0\.9\.0: Served by our internal mirror/m);
+      assert.match(stdout, /^ignored {2}DL002 forked-lib@1\.4\.0: Our fork, pinned to a reviewed commit$/m);
+      assert.equal(code, EXIT_OK);
+    });
+
+    it("stops with a clear error when the file is invalid", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "deplens-config-"));
+      try {
+        copyFileSync(join(CLEAN, "package-lock.json"), join(dir, "package-lock.json"));
+        writeFileSync(join(dir, ".deplens.json"), JSON.stringify({ ignore: [{ rule: "DL002", package: "a" }] }));
+        const { code, stderr } = await run(["scan", dir]);
+        assert.equal(code, EXIT_ERROR);
+        assert.match(stderr, /ignore\[0\]\.reason in \.deplens\.json must be a non-empty string/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 

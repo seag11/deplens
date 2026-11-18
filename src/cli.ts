@@ -16,10 +16,12 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { analyze, DEFAULT_REGISTRY } from "./analyze.ts";
+import { CONFIG_FILE, ConfigError, parseConfig, type Config } from "./config.ts";
 import { GitError, readFileAtMergeBase } from "./git.ts";
 import { LockfileError } from "./lockfile.ts";
 import { HttpRegistryClient, type RegistryClient } from "./registry.ts";
 import { formatJson, formatText } from "./report.ts";
+import { RULES } from "./rules/index.ts";
 import { isAtLeast, isSeverity } from "./severity.ts";
 import { SEVERITIES } from "./types.ts";
 
@@ -57,7 +59,7 @@ const LOCKFILE_NAMES = ["npm-shrinkwrap.json", "package-lock.json"];
 const USAGE = `Usage: deplens scan [dir] [options]
 
 Scans the npm lockfile in dir (default: the current folder) for supply chain
-risk signals.
+risk signals. Findings to accept can be listed in dir/${CONFIG_FILE}.
 
 Options:
   --base <git-ref>      Check only packages added or changed since the current
@@ -92,7 +94,7 @@ export async function main(
   } catch (error) {
     if (error instanceof UsageError) {
       io.stderr(`deplens: ${error.message}\n\n${USAGE}`);
-    } else if (error instanceof LockfileError || error instanceof GitError) {
+    } else if (error instanceof LockfileError || error instanceof GitError || error instanceof ConfigError) {
       io.stderr(`deplens: ${error.message}\n`);
     } else {
       // Anything else is a bug. Print the stack so it can be reported, and
@@ -138,9 +140,12 @@ async function run(argv: readonly string[], io: Io, env: Environment): Promise<n
   const base =
     values.base === undefined ? undefined : { lockfile: readFileAtMergeBase(dir, values.base, lockfile.name) };
 
+  const config = readConfig(dir);
+
   const report = await analyze({
     lockfile: lockfile.text,
     ...(base ? { base } : {}),
+    ignore: config.ignore,
     registries,
     ...(values.offline ? {} : { registry: env.createRegistry() }),
     now: env.now(),
@@ -170,6 +175,16 @@ function parseCommandLine(argv: readonly string[]) {
     // parseArgs throws a TypeError for unknown options and missing values.
     throw new UsageError((error as Error).message);
   }
+}
+
+/** Reads `dir/.deplens.json`. The file is optional; without it nothing is ignored. */
+function readConfig(dir: string): Config {
+  const path = join(dir, CONFIG_FILE);
+  if (!existsSync(path)) return { ignore: [] };
+  return parseConfig(
+    readFileSync(path, "utf8"),
+    RULES.map((rule) => rule.id),
+  );
 }
 
 /** Reads the lockfile npm would use in `dir`, returning its file name and text. */

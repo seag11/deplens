@@ -136,6 +136,11 @@ export interface Finding {
   readonly via: readonly string[];
 }
 
+/** A finding that the configuration accepts, with the reason it was accepted. */
+export interface IgnoredFinding extends Finding {
+  readonly ignoreReason: string;
+}
+
 /** The result of one analysis. */
 export interface Report {
   /** Number of distinct packages in the lockfile. */
@@ -147,6 +152,11 @@ export interface Report {
   readonly changedCount?: number;
   /** Findings ordered by severity (highest first), then rule, then package. */
   readonly findings: readonly Finding[];
+  /**
+   * Findings accepted by ignore rules, in the same order. They don't count
+   * towards the summary or the exit code, but are always shown.
+   */
+  readonly ignored: readonly IgnoredFinding[];
   /**
    * Things that limited the analysis, such as running offline or a registry
    * that couldn't be reached. Shown so a quiet report isn't mistaken for a
