@@ -7,7 +7,7 @@
  */
 
 import type { IgnoreRule } from "./config.ts";
-import type { Finding, IgnoredFinding } from "./types.ts";
+import type { Finding, IgnoredFinding, PackageNode } from "./types.ts";
 
 /**
  * Splits findings into those still reported and those an ignore rule accepts.
@@ -27,6 +27,24 @@ export function applyIgnores(
   }
 
   return { reported, ignored };
+}
+
+/**
+ * The ignore rules that match no package in the lockfile at all: a misspelt
+ * name, a wrong version, or a package that has since been removed or
+ * upgraded. Such a rule can never accept anything, so the user should know.
+ *
+ * This checks the whole lockfile, not just the findings, so it works when
+ * only changed packages are checked: an ignore for an unchanged package
+ * still matches a package here.
+ */
+export function unmatchedIgnores(ignores: readonly IgnoreRule[], packages: readonly PackageNode[]): IgnoreRule[] {
+  return ignores.filter(
+    (ignore) =>
+      !packages.some(
+        (pkg) => pkg.name === ignore.package && (ignore.version === undefined || pkg.version === ignore.version),
+      ),
+  );
 }
 
 function matches(ignore: IgnoreRule, finding: Finding): boolean {

@@ -46,6 +46,12 @@ const TOP_LEVEL_KEYS = ["ignore"];
 const IGNORE_KEYS = ["rule", "package", "version", "reason"];
 
 /**
+ * An exact semantic version, as npm publishes them: `3.1.0`, `1.0.0-beta.1`,
+ * `2.0.0+build.5`. Ranges such as `^3.1.0` or `3.x` don't match.
+ */
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/**
  * Parses and validates a configuration file.
  *
  * @param knownRuleIds The rule IDs that exist, to catch typos such as `DL0002`.
@@ -79,7 +85,16 @@ function readIgnoreRule(entry: unknown, where: string, knownRuleIds: readonly st
   const reason = requiredString(entry, "reason", where);
 
   if (entry["version"] === undefined) return { rule, package: pkg, reason };
-  return { rule, package: pkg, version: requiredString(entry, "version", where), reason };
+
+  // A range would cover future releases, which pinning exists to prevent.
+  const version = requiredString(entry, "version", where);
+  if (!EXACT_VERSION.test(version)) {
+    throw new ConfigError(
+      `${where}.version in ${CONFIG_FILE} must be an exact version such as 3.1.0, not "${version}". ` +
+        "To accept every version, leave version out.",
+    );
+  }
+  return { rule, package: pkg, version, reason };
 }
 
 /** A non-empty string field, or a ConfigError naming exactly what's wrong. */

@@ -14,7 +14,7 @@
 
 import type { IgnoreRule } from "./config.ts";
 import { changedPackages } from "./diff.ts";
-import { applyIgnores } from "./ignore.ts";
+import { applyIgnores, unmatchedIgnores } from "./ignore.ts";
 import { LockfileError, parseLockfile } from "./lockfile.ts";
 import type { Packument } from "./packument.ts";
 import type { RegistryClient } from "./registry.ts";
@@ -130,7 +130,9 @@ export async function analyze(input: AnalyzeInput): Promise<Report> {
   }
 
   // Ignores are applied last, so rules never need to know about them.
-  const { reported, ignored } = applyIgnores(findings.sort(compareFindings), input.ignore ?? []);
+  const ignores = input.ignore ?? [];
+  const { reported, ignored } = applyIgnores(findings.sort(compareFindings), ignores);
+  for (const ignore of unmatchedIgnores(ignores, all)) warnings.push(unmatchedWarning(ignore));
 
   return {
     packageCount: all.length,
@@ -189,6 +191,12 @@ async function fetchPackuments(
   });
 
   return { packuments, missing: missing.sort() };
+}
+
+function unmatchedWarning(ignore: IgnoreRule): string {
+  const target = ignore.version === undefined ? ignore.package : `${ignore.package}@${ignore.version}`;
+  const check = ignore.version === undefined ? "the package name" : "the package name and version";
+  return `The ignore rule for ${ignore.rule} ${target} matches no package in the lockfile; check ${check}.`;
 }
 
 function missingWarning(names: readonly string[]): string {

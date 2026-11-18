@@ -28,6 +28,12 @@ describe("parseConfig", () => {
     ]);
   });
 
+  it("accepts exact versions, including prereleases and build metadata", () => {
+    for (const version of ["3.1.0", "0.0.1", "1.0.0-beta.1", "2.0.0-rc.1+build.5", "10.20.30"]) {
+      assert.equal(parse({ ignore: [{ rule: "DL001", package: "a", version, reason: "x" }] }).ignore[0]?.version, version);
+    }
+  });
+
   it("accepts an empty object", () => {
     assert.deepEqual(parse({}), { ignore: [] });
   });
@@ -62,6 +68,15 @@ describe("parseConfig", () => {
     it("a missing package, or a version that isn't a string", () => {
       rejects({ ignore: [{ rule: "DL001", reason: "x" }] }, /ignore\[0\]\.package/);
       rejects({ ignore: [{ rule: "DL001", package: "a", version: 3, reason: "x" }] }, /ignore\[0\]\.version/);
+    });
+
+    it("a version range, since it would cover future releases", () => {
+      for (const version of ["^3.1.0", "~3.1.0", "3.x", "*", ">=3.0.0", "3.1", "latest", "v3.1.0"]) {
+        rejects(
+          { ignore: [{ rule: "DL001", package: "a", version, reason: "x" }] },
+          /must be an exact version such as 3\.1\.0/,
+        );
+      }
     });
 
     it("pointing at the right entry", () => {

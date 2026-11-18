@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { applyIgnores } from "../src/ignore.ts";
+import { applyIgnores, unmatchedIgnores } from "../src/ignore.ts";
 import type { Finding } from "../src/types.ts";
+import { pkg } from "./helpers.ts";
 
 function finding(ruleId: string, name: string, version = "1.0.0"): Finding {
   return {
@@ -57,5 +58,36 @@ describe("applyIgnores", () => {
       ],
     );
     assert.equal(ignored[0]?.ignoreReason, "first");
+  });
+});
+
+describe("unmatchedIgnores", () => {
+  const packages = [pkg({ name: "internal-lib", version: "1.0.0" }), pkg({ name: "native-addon", version: "3.1.0" })];
+
+  it("finds rules whose package isn't in the lockfile, such as a misspelt name", () => {
+    const ignores = [
+      { rule: "DL002", package: "internal-lib", reason: "ours" },
+      { rule: "DL002", package: "intenal-lib", reason: "typo" },
+    ];
+    assert.deepEqual(
+      unmatchedIgnores(ignores, packages).map((i) => i.package),
+      ["intenal-lib"],
+    );
+  });
+
+  it("finds rules pinned to a version that isn't installed", () => {
+    const ignores = [
+      { rule: "DL001", package: "native-addon", version: "3.1.0", reason: "reviewed" },
+      { rule: "DL001", package: "native-addon", version: "3.0.9", reason: "old pin" },
+    ];
+    assert.deepEqual(
+      unmatchedIgnores(ignores, packages).map((i) => i.version),
+      ["3.0.9"],
+    );
+  });
+
+  it("counts a rule as matched even when its package has no finding", () => {
+    // The package exists, so the rule is valid; it just has nothing to accept today.
+    assert.deepEqual(unmatchedIgnores([{ rule: "DL004", package: "internal-lib", reason: "x" }], packages), []);
   });
 });

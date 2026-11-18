@@ -79,6 +79,36 @@ describe("analyze", () => {
     );
   });
 
+  it("warns about ignore rules that match no package in the lockfile", async () => {
+    const text = lockfileText({ "node_modules/native-addon": registryEntry("native-addon", "3.1.0") });
+    const report = await analyze({
+      lockfile: text,
+      rules: [],
+      ignore: [
+        { rule: "DL002", package: "intenal-lib", reason: "typo in the name" },
+        { rule: "DL001", package: "native-addon", version: "3.0.9", reason: "stale pin" },
+        { rule: "DL001", package: "native-addon", version: "3.1.0", reason: "current pin" },
+      ],
+    });
+    assert.deepEqual(report.warnings, [
+      "The ignore rule for DL002 intenal-lib matches no package in the lockfile; check the package name.",
+      "The ignore rule for DL001 native-addon@3.0.9 matches no package in the lockfile; check the package name and version.",
+    ]);
+  });
+
+  it("checks ignore rules against the whole lockfile when only changes are checked", async () => {
+    // native-addon didn't change, but the rule still names a real package.
+    const text = lockfileText({ "node_modules/native-addon": registryEntry("native-addon", "3.1.0") });
+    const report = await analyze({
+      lockfile: text,
+      base: { lockfile: text },
+      rules: [],
+      ignore: [{ rule: "DL001", package: "native-addon", version: "3.1.0", reason: "reviewed" }],
+    });
+    assert.equal(report.changedCount, 0);
+    assert.deepEqual(report.warnings, []);
+  });
+
   it("runs only the rules it is given", async () => {
     const flagsEverything: Rule = {
       id: "TEST",
