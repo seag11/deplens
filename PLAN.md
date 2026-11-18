@@ -157,10 +157,13 @@ deplens scan [dir] [--base GIT_REF] [--offline] [--json] [--fail-on low|medium|h
 
 `--base` reads the base lockfile at the merge base of REF and the current commit, the point where the branch split off, with `git show <merge-base>:./package-lock.json` (relative to the scanned folder, so monorepo subfolders work) and scans only packages that are new or changed. A package counts as changed when its name and version are new, or when the same version now has a different source or integrity hash, since that is a different download. If the base had no lockfile, every package counts as new and a warning says so. Git runs without a shell, and refs starting with `-` are refused, so a ref can't be used to pass options to git. Exit codes: `0` nothing at or above `--fail-on`, `1` findings at or above it, `2` error.
 
-Ignores go in an optional `.deplens.json`, and each one needs a reason:
+Ignores go in an optional `.deplens.json`, and each one needs a reason. An optional `version` limits an ignore to one release; without it, future versions are covered too, which for the release-based rules (DL001, DL004–DL006) would hide a future compromised release:
 
 ```json
-{ "ignore": [{ "rule": "DL002", "package": "internal-lib", "reason": "Our own git-hosted package" }] }
+{ "ignore": [
+    { "rule": "DL002", "package": "internal-lib", "reason": "Our own git-hosted package" },
+    { "rule": "DL001", "package": "native-addon", "version": "3.1.0", "reason": "Reviewed its build script" }
+] }
 ```
 
 The GitHub Action wraps the same `analyze()`. In a pull request it diffs against the base branch automatically and writes a Markdown table to the job summary:
@@ -207,7 +210,7 @@ Each one is a complete stopping point.
 3. **Registry rules (1–2 weekends). Done.** Registry client (8 concurrent requests, one retry on 429 or 5xx, 30 s timeout), DL004–DL006, DL001's escalation, DL005's trusted-publishing exception, `--offline`, warnings when registry checks couldn't run, a recorded registry fixture, and the attack-shape scenarios. An online scan of a 132-package project takes about 2.5 s.
 4. **Diff and Action (1 weekend).** In three steps:
    1. *Done.* `--base <git-ref>`: scan only new or changed packages, fetching registry metadata only for them. On a test project, bumping one dependency gave 27 changed packages of 159, checked in 0.55 s instead of 2.8 s for the full tree.
-   2. `.deplens.json` ignores, each with a required reason.
+   2. *Done.* `.deplens.json` ignores, each with a required reason and an optional exact `version`. Ignores are applied after the rules run; accepted findings move to the report's `ignored` list and are always shown with their reasons, never silently dropped. Validation is strict (unknown keys, unknown rule IDs and missing reasons are errors), since a typo in a security configuration would otherwise ignore nothing silently.
    3. `action.yml`, diffing against the pull request's base branch automatically, with a Markdown job summary. Decide how to ship the compiled code, since `dist/` is git-ignored. Document the equivalent pipeline step for GitLab CI and Bitbucket Pipelines at the same time, so the three platforms are described together.
 5. **Release (1 weekend).** README with one section per signal and the evaluation results, npm release with provenance, `v1` tag.
 
