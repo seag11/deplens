@@ -36,6 +36,7 @@ HIGH  DL006 provenance-dropped  example-utils@2.4.1
 3. **Every finding explains itself.** Each one shows the evidence, why it matters, how to fix it, and the dependency path that pulled the package in. No risk scores.
 4. **Diff first.** In CI the question is "what did this PR add?" Scanning only changed packages keeps the noise and the number of registry requests low.
 5. **Practise what it preaches.** Zero runtime dependencies. Published with npm provenance. Scans its own lockfile in CI.
+6. **Portable.** deplens works wherever npm and git do. The engine works on lockfile text and knows nothing about git or CI; the CLI uses only plain git; knowledge of a particular platform (GitHub, GitLab, Bitbucket) lives only in thin integrations at the edge. Supporting a new platform should never touch the engine or the rules.
 
 ## Signals
 
@@ -84,7 +85,8 @@ src/
   registry.ts       RegistryClient interface + HTTP implementation (the only network I/O)
   edit-distance.ts  bounded Damerau-Levenshtein distance
   json.ts           helpers for reading untrusted JSON
-  diff.ts           base vs head → added or changed packages (milestone 4)
+  diff.ts           base vs head → added or changed packages
+  git.ts            reads the base lockfile at a git ref (the only module that runs git)
   rules/            one file per rule, plus index.ts listing them; recency.ts is shared
   analyze.ts        parse → (diff) → fetch metadata → run rules → (apply ignores)
   report.ts         text and JSON output; Markdown for the Action summary (milestone 4)
@@ -153,7 +155,7 @@ deplens scan [dir] [--base GIT_REF] [--offline] [--json] [--fail-on low|medium|h
 
 `--registry` lists the registries packages may come from (default: the public npm registry), so teams using a private registry don't see every package flagged.
 
-`--base` reads the base lockfile with `git show REF:package-lock.json` and scans only packages that are new or changed. Exit codes: `0` nothing at or above `--fail-on`, `1` findings at or above it, `2` error.
+`--base` reads the base lockfile at the merge base of REF and the current commit, the point where the branch split off, with `git show <merge-base>:./package-lock.json` (relative to the scanned folder, so monorepo subfolders work) and scans only packages that are new or changed. A package counts as changed when its name and version are new, or when the same version now has a different source or integrity hash, since that is a different download. If the base had no lockfile, every package counts as new and a warning says so. Git runs without a shell, and refs starting with `-` are refused, so a ref can't be used to pass options to git. Exit codes: `0` nothing at or above `--fail-on`, `1` findings at or above it, `2` error.
 
 Ignores go in an optional `.deplens.json`, and each one needs a reason:
 
@@ -203,7 +205,10 @@ Each one is a complete stopping point.
    2. Bundle a list of popular packages and use it by default. *Waiting on a separate project:* existing lists are built from share-alike (CC BY-SA) data, so the list will come from a separate MIT-licensed repository that crawls npm's registry and downloads API directly. deplens copies the published list in with an update script, keeping zero runtime dependencies.
    3. The typosquat evaluation, once the list exists.
 3. **Registry rules (1–2 weekends). Done.** Registry client (8 concurrent requests, one retry on 429 or 5xx, 30 s timeout), DL004–DL006, DL001's escalation, DL005's trusted-publishing exception, `--offline`, warnings when registry checks couldn't run, a recorded registry fixture, and the attack-shape scenarios. An online scan of a 132-package project takes about 2.5 s.
-4. **Diff and Action (1 weekend).** `--base`, `.deplens.json` ignores, `action.yml`, job summary.
+4. **Diff and Action (1 weekend).** In three steps:
+   1. *Done.* `--base <git-ref>`: scan only new or changed packages, fetching registry metadata only for them. On a test project, bumping one dependency gave 27 changed packages of 159, checked in 0.55 s instead of 2.8 s for the full tree.
+   2. `.deplens.json` ignores, each with a required reason.
+   3. `action.yml`, diffing against the pull request's base branch automatically, with a Markdown job summary. Decide how to ship the compiled code, since `dist/` is git-ignored. Document the equivalent pipeline step for GitLab CI and Bitbucket Pipelines at the same time, so the three platforms are described together.
 5. **Release (1 weekend).** README with one section per signal and the evaluation results, npm release with provenance, `v1` tag.
 
 ## Later, if the evaluation or users call for it
@@ -211,6 +216,10 @@ Each one is a complete stopping point.
 - More signals: suspicious install-script contents, a dependency added in a patch release, packages less than a month old, a release after a long period with no releases, a published tarball that doesn't match the source repository.
 - SARIF output for GitHub code scanning.
 - `pnpm-lock.yaml` and `yarn.lock`.
+- Portability extension points, each small and kept at the edge:
+  - `--base-lockfile <path>`, for CI setups without git history. The engine already accepts a base lockfile's text.
+  - Detecting the CI platform from its environment variables to fill in `--base` automatically: one table of platforms in its own module.
+  - Output formats other platforms display natively (merge request reports, code insights), as new reporters beside text and JSON.
 - A disk cache for full-tree scans.
 
 ## Non-goals
@@ -223,7 +232,7 @@ Each one is a complete stopping point.
 
 - **Too many false alarms** is the main threat to adoption. Mitigated by diff mode, low severity for common signals, and measuring noise before release.
 - **Lockfile quirks** (workspaces, links, aliases). Mitigated by testing against real lockfiles.
-- **DL005 noise from organisation-wide publisher changes.** First real data point: scanning deplens's own lockfile gave 21 `low` DL005 findings, because the TypeScript project moved all of its packages to a new organisation publishing account four months earlier. The 90-day window removed them, along with a 7-year-old maintainer change in another test project, while keeping a 10-day-old one. During the 90 days after such a switch, one event still produces many near-identical findings. Measure that in the noise evaluation before deciding whether the report should group them.
+- **Bursts of near-identical findings.** One event can flag many packages at once. Two real cases so far: an organisation switching its publishing account (21 `low` DL005 findings on deplens's own lockfile, removed by DL005's 90-day window, though the same burst still happens during those 90 days), and a fresh release of a package that ships per-platform sub-packages (27 DL004 findings from one release). Diff mode limits both to the pull request that brings them in. Measure them in the noise evaluation before deciding whether the report should group findings from the same release or publisher.
 - **Overstating what's caught.** No signal catches every attack: provenance can come from a hijacked pipeline, and stolen accounts publish as their owners. Mitigated by a README that says which attack shapes each signal does and doesn't catch, backed by the attack-shape fixtures.
 - **Overlap with package-manager cooldowns.** npm and pnpm can now refuse very new versions themselves. deplens still adds value by explaining the finding and by enforcing it in CI regardless of each developer's local settings, and DL004's fix text recommends turning the setting on.
 - **Package name.** Check that `deplens` is free on npm before release, and fall back to `@seag11/deplens` if it isn't.
