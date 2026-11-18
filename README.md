@@ -68,7 +68,10 @@ ignored  DL002 internal-lib@1.0.0: Our own git-hosted package
 
 **Pin a version when the risk is about a release.** An ignore without `version` also covers every future version. For DL001, DL004, DL005 and DL006 that would hide a future compromised release, the very thing those checks look for, so give the version you reviewed. Leaving `version` out suits findings about where a package comes from (DL002) or its name (DL003).
 
-The file is checked strictly. An unknown key, an unknown rule ID or a missing reason stops the run with exit code `2`, because a typo in this file would otherwise ignore nothing without saying so.
+An entry matches on the rule ID, the package's real name (for an `npm:` alias, the aliased package) and, if given, the exact version. All are exact, case-sensitive matches. Mistakes never hide a finding, they only fail to accept one, and deplens points them out:
+
+- **The file is checked strictly.** An unknown key, an unknown rule ID, a missing reason or a version range such as `^3.1.0` stops the run with exit code `2`. A range would cover future releases, which is what pinning prevents; to accept every version, leave `version` out.
+- **Entries that match nothing are reported.** If no package in the lockfile has the entry's name (and version), a note says so. That catches a misspelt name or version, and entries left behind after a package is upgraded or removed. The check covers the whole lockfile, so it works with `--base` too.
 
 ## Signals
 
