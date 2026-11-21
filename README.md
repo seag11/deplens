@@ -36,6 +36,7 @@ DL004 recent-release
 | `--registry <url>` | A registry packages may come from. Repeat for several. Default: the public npm registry |
 | `--offline` | Don't contact the registry. The checks that need registry metadata are skipped, and the report says so |
 | `--json` | Print the report as JSON |
+| `--markdown-file <path>` | Also write the report as Markdown to this file, for a CI job summary (such as `$GITHUB_STEP_SUMMARY`) or a pull request comment. Text that comes from packages or the registry is escaped, so a crafted package name or script can't add links, images or HTML to the page. Very long values are shortened and the report stays under 1 MiB, GitHub's limit for a job summary; anything left out is counted and listed in the normal output |
 
 Exit codes: `0` nothing at or above `--fail-on`, `1` at least one finding at or above it, `2` an error.
 
@@ -44,6 +45,8 @@ Exit codes: `0` nothing at or above `--fail-on`, `1` at least one finding at or 
 **Pull requests: use `--base`.** Comparing against the target branch means a pull request is judged only on the dependencies it adds or changes, not on everything already in the tree. It also keeps registry requests to a handful. A package counts as changed when its version is new, or when the same version now comes from a different source or with a different integrity hash.
 
 Like a pull request diff, `--base` compares against the point where the current branch split from the ref (the merge base), not the ref's latest commit. If the target branch has moved on since, its newer changes aren't blamed on your branch. In CI the base branch must be fetched with its history, which shallow clones leave out: use `fetch-depth: 0` in GitHub Actions, `GIT_DEPTH: 0` in GitLab CI, or `clone: depth: full` in Bitbucket Pipelines.
+
+**Output is safe to display.** Package names, scripts and publisher names come from lockfiles and the registry, which other people control. Every output format shows control characters (such as terminal escape sequences and carriage returns) and invisible characters (such as right-to-left overrides) as visible escapes like `\u{1B}`, so a crafted value can't hide a line, fake a result or reorder text in your terminal, CI log or job summary.
 
 Online, deplens downloads each package's full registry metadata (up to a few megabytes for packages with long histories), 8 requests at a time. If some metadata can't be fetched, those packages are still checked offline and the report lists them.
 
@@ -168,8 +171,9 @@ src/
   edit-distance.ts  name similarity, for the typosquat check
   rules/            one file per rule, listed in rules/index.ts
   analyze.ts        fetches metadata, runs the rules, orders the findings
-  report.ts         text and JSON output
-  cli.ts            arguments, files, exit codes (the only module that reads files)
+  report/           output formats: text.ts, json.ts, markdown.ts; summary.ts for what they share;
+                    printable.ts, which makes untrusted text safe to display
+  cli.ts            arguments, files, exit codes (the only module that reads or writes files)
   bin.ts            the executable
 ```
 

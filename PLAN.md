@@ -89,7 +89,7 @@ src/
   git.ts            reads the base lockfile at a git ref (the only module that runs git)
   rules/            one file per rule, plus index.ts listing them; recency.ts is shared
   analyze.ts        parse → (diff) → fetch metadata → run rules → (apply ignores)
-  report.ts         text and JSON output; Markdown for the Action summary (milestone 4)
+  report/           text.ts, json.ts, markdown.ts (job summaries, PR comments), summary.ts (shared)
   cli.ts            node:util parseArgs, exit codes
   action.ts         GitHub Action entry point (milestone 4)
 data/popular.json   (milestone 2, from the separate list project)
@@ -211,7 +211,9 @@ Each one is a complete stopping point.
 4. **Diff and Action (1 weekend).** In three steps:
    1. *Done.* `--base <git-ref>`: scan only new or changed packages, fetching registry metadata only for them. On a test project, bumping one dependency gave 27 changed packages of 159, checked in 0.55 s instead of 2.8 s for the full tree.
    2. *Done.* `.deplens.json` ignores, each with a required reason and an optional exact `version`. Ignores are applied after the rules run; accepted findings move to the report's `ignored` list and are always shown with their reasons, never silently dropped. Validation is strict (unknown keys, unknown rule IDs, missing reasons and version ranges are errors), since a typo in a security configuration would otherwise ignore nothing silently. Entries whose name and version match no package in the whole lockfile produce a warning, which catches misspellings and stale entries, with or without `--base`.
-   3. `action.yml`, diffing against the pull request's base branch automatically, with a Markdown job summary. Decide how to ship the compiled code, since `dist/` is git-ignored. Document the equivalent pipeline step for GitLab CI and Bitbucket Pipelines at the same time, so the three platforms are described together.
+   *Done, ahead of step 3:* `--markdown-file <path>` writes a Markdown report (summary, findings table, rule explanations, accepted findings, notes) for a job summary or pull request comment, on any platform. Everything that comes from packages, the registry or `.deplens.json` is escaped, since a pull request can change the lockfile and anyone can publish a package: a crafted name or script can't add links, images or HTML. `src/report.ts` became `src/report/`, one file per format.
+   *Done:* output hardening. Text and Markdown output show control characters, invisible format characters (including right-to-left overrides) and line separators from untrusted values as visible `\u{…}` escapes, so a crafted package name or script can't hide lines, fake a clean result or reorder text in a terminal, log or page. The Markdown report cuts values to 500 characters and gives each growing section a byte budget, staying well under GitHub's 1 MiB job-summary limit, with a line counting anything left out. JSON needs neither: `JSON.stringify` escapes control characters, and programs don't render it.
+   3. `action.yml`, diffing against the pull request's base branch automatically, with a Markdown job summary. Decide how to ship the compiled code, since `dist/` is git-ignored. Document the equivalent pipeline step for GitLab CI and Bitbucket Pipelines at the same time, so the three platforms are described together. Print the report inside GitHub's `::stop-commands::<token>` block, GitHub's documented way to log untrusted text, so that no line of it can be read as a workflow command. This is GitHub-specific, so it lives in the Action, not the CLI.
 5. **Release (1 weekend).** README with one section per signal and the evaluation results, npm release with provenance, `v1` tag.
 
 ## Later, if the evaluation or users call for it
