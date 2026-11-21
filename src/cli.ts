@@ -11,7 +11,7 @@
  *   2  usage error, unreadable lockfile, or any other failure
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -20,7 +20,9 @@ import { CONFIG_FILE, ConfigError, parseConfig, type Config } from "./config.ts"
 import { GitError, readFileAtMergeBase } from "./git.ts";
 import { LockfileError } from "./lockfile.ts";
 import { HttpRegistryClient, type RegistryClient } from "./registry.ts";
-import { formatJson, formatText } from "./report.ts";
+import { formatJson } from "./report/json.ts";
+import { formatMarkdown } from "./report/markdown.ts";
+import { formatText } from "./report/text.ts";
 import { RULES } from "./rules/index.ts";
 import { isAtLeast, isSeverity } from "./severity.ts";
 import { SEVERITIES } from "./types.ts";
@@ -71,6 +73,9 @@ Options:
   --offline             Don't contact the registry. Checks that need registry
                         metadata are skipped.
   --json                Print the report as JSON
+  --markdown-file <path>
+                        Also write the report as Markdown to this file, for a
+                        CI job summary or a pull request comment
   -h, --help            Show this help
   --version             Show the version
 `;
@@ -78,6 +83,11 @@ Options:
 /** The command line was wrong. Reported with the usage text. */
 class UsageError extends Error {
   override name = "UsageError";
+}
+
+/** A report couldn't be written where it was asked for. */
+class OutputError extends Error {
+  override name = "OutputError";
 }
 
 /**
@@ -94,7 +104,12 @@ export async function main(
   } catch (error) {
     if (error instanceof UsageError) {
       io.stderr(`deplens: ${error.message}\n\n${USAGE}`);
-    } else if (error instanceof LockfileError || error instanceof GitError || error instanceof ConfigError) {
+    } else if (
+      error instanceof LockfileError ||
+      error instanceof GitError ||
+      error instanceof ConfigError ||
+      error instanceof OutputError
+    ) {
       io.stderr(`deplens: ${error.message}\n`);
     } else {
       // Anything else is a bug. Print the stack so it can be reported, and
@@ -151,6 +166,7 @@ async function run(argv: readonly string[], io: Io, env: Environment): Promise<n
     now: env.now(),
   });
   io.stdout(values.json ? formatJson(report) : formatText(report));
+  if (values["markdown-file"] !== undefined) writeReport(values["markdown-file"], formatMarkdown(report));
 
   const failing = report.findings.some((finding) => isAtLeast(finding.severity, failOn));
   return failing ? EXIT_FINDINGS : EXIT_OK;
@@ -167,6 +183,7 @@ function parseCommandLine(argv: readonly string[]) {
         registry: { type: "string", multiple: true },
         offline: { type: "boolean", default: false },
         json: { type: "boolean", default: false },
+        "markdown-file": { type: "string" },
         help: { type: "boolean", short: "h", default: false },
         version: { type: "boolean", default: false },
       },
@@ -174,6 +191,19 @@ function parseCommandLine(argv: readonly string[]) {
   } catch (error) {
     // parseArgs throws a TypeError for unknown options and missing values.
     throw new UsageError((error as Error).message);
+  }
+}
+
+/**
+ * Writes a report file, replacing any previous contents. (GitHub's
+ * $GITHUB_STEP_SUMMARY is a separate file for each step, so replacing is
+ * safe there.)
+ */
+function writeReport(path: string, content: string): void {
+  try {
+    writeFileSync(path, content);
+  } catch (error) {
+    throw new OutputError(`Couldn't write the Markdown report to ${path}: ${(error as Error).message}`);
   }
 }
 

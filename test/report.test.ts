@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { formatJson, formatText } from "../src/report.ts";
+import { formatJson } from "../src/report/json.ts";
+import { formatText } from "../src/report/text.ts";
 import { installScript } from "../src/rules/install-script.ts";
 import type { Finding, Report } from "../src/types.ts";
 

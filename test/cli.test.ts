@@ -165,6 +165,28 @@ describe("deplens scan", () => {
     });
   });
 
+  describe("--markdown-file", () => {
+    it("writes the report as Markdown, alongside the normal output", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "deplens-markdown-"));
+      try {
+        const path = join(dir, "summary.md");
+        const { code, stdout } = await run(["scan", RISKY, "--markdown-file", path]);
+        assert.match(stdout, /^deplens: 3 findings/);
+        assert.match(readFileSync(path, "utf8"), /^### deplens\n\n3 findings in 4 packages \(1 high, 1 medium, 1 low\)\n/);
+        // Writing the file doesn't change the exit code.
+        assert.equal(code, EXIT_FINDINGS);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("stops with a clear error when the file can't be written", async () => {
+      const { code, stderr } = await run(["scan", CLEAN, "--markdown-file", fixture("no-such-folder/summary.md")]);
+      assert.equal(code, EXIT_ERROR);
+      assert.match(stderr, /Couldn't write the Markdown report to/);
+    });
+  });
+
   it("prints JSON with --json", async () => {
     const output = JSON.parse((await run(["scan", RISKY, "--json"])).stdout);
     assert.deepEqual(output.summary, { low: 1, medium: 1, high: 1 });
