@@ -8,10 +8,17 @@ Flag npm supply chain risks that `npm audit` misses, with an explanation for eve
 
 ## Usage
 
-Requires Node.js 22.18 or later.
+Requires Node.js 22.18 or later, and nothing else: deplens has no dependencies, and Node runs its TypeScript sources directly, so there's nothing to install or build. It isn't published to npm yet; run it from a clone:
+
+```sh
+git clone https://github.com/seag11/deplens.git
+node deplens/src/bin.ts scan --base origin/main --fail-on medium
+```
+
+In CI, pin the clone to a commit you have reviewed (`git -C deplens checkout <commit-sha>`), so the code that runs can't change under you.
 
 ```console
-$ npx deplens scan --base origin/main --fail-on medium
+$ node deplens/src/bin.ts scan --base origin/main --fail-on medium
 deplens: 2 findings in 14 changed packages of 412 (1 high, 1 medium)
 
 DL001 install-script

@@ -35,7 +35,7 @@ HIGH  DL006 provenance-dropped  example-utils@2.4.1
 2. **Rules are pure functions.** Rules never do I/O. They take a package plus its metadata and return findings, which keeps them easy to test and lets the tool run offline.
 3. **Every finding explains itself.** Each one shows the evidence, why it matters, how to fix it, and the dependency path that pulled the package in. No risk scores.
 4. **Diff first.** In CI the question is "what did this PR add?" Scanning only changed packages keeps the noise and the number of registry requests low.
-5. **Practise what it preaches.** Zero runtime dependencies. Published with npm provenance. Scans its own lockfile in CI.
+5. **Practise what it preaches.** Zero runtime dependencies. Scans its own lockfile in CI. Published with npm provenance, once it's on npm.
 6. **Portable.** deplens works wherever npm and git do. The engine works on lockfile text and knows nothing about git or CI; the CLI uses only plain git; knowledge of a particular platform (GitHub, GitLab, Bitbucket) lives only in thin integrations at the edge. Supporting a new platform should never touch the engine or the rules.
 
 ## Signals
@@ -169,14 +169,16 @@ Ignores go in an optional `.deplens.json`, and each one needs a reason. An optio
 The GitHub Action wraps the same `analyze()`. In a pull request it diffs against the base branch automatically and writes a Markdown table to the job summary:
 
 ```yaml
-- uses: seag11/deplens@v1
+- uses: seag11/deplens@<commit-sha>   # pin a reviewed commit
   with:
     fail-on: medium   # recommended for pull requests: enforces the 3-day cooldown
 ```
 
 ## Technology
 
-TypeScript on Node ≥ 22.18 with zero runtime dependencies: `fetch`, `node:util` `parseArgs`, `node:test` and `node:fs` cover everything. Tests run the `.ts` sources directly with Node's built-in type stripping, so the code sticks to syntax Node can strip (`erasableSyntaxOnly`). Since there are no runtime dependencies, the Action can run the compiled `tsc` output directly, with no bundler. The only dev dependencies are `typescript` and `@types/node` (pinned to the oldest supported Node line).
+TypeScript on Node ≥ 22.18 with zero runtime dependencies: `fetch`, `node:util` `parseArgs`, `node:test` and `node:fs` cover everything. Tests run the `.ts` sources directly with Node's built-in type stripping, so the code sticks to syntax Node can strip (`erasableSyntaxOnly`). With no runtime dependencies, deplens runs straight from a clone with `node src/bin.ts`: no install and no build. The only dev dependencies are `typescript` and `@types/node`, the latter pinned to the oldest supported Node line so newer APIs can't slip in.
+
+**Node versions.** The minimum is 22.18, the first Node 22 release that strips types without a flag. CI tests every supported line: 22 (maintenance, end of life 2027-04-30), 24 (maintenance LTS) and 26 (active LTS since 2026-10-28). All three pass the full suite and run the sources without warnings. When Node 22 reaches end of life, raise `engines` to Node 24, move `@types/node` to the 24 line, and drop 22 from CI.
 
 ## Testing
 
@@ -213,14 +215,15 @@ Each one is a complete stopping point.
    2. *Done.* `.deplens.json` ignores, each with a required reason and an optional exact `version`. Ignores are applied after the rules run; accepted findings move to the report's `ignored` list and are always shown with their reasons, never silently dropped. Validation is strict (unknown keys, unknown rule IDs, missing reasons and version ranges are errors), since a typo in a security configuration would otherwise ignore nothing silently. Entries whose name and version match no package in the whole lockfile produce a warning, which catches misspellings and stale entries, with or without `--base`.
    *Done, ahead of step 3:* `--markdown-file <path>` writes a Markdown report (summary, findings table, rule explanations, accepted findings, notes) for a job summary or pull request comment, on any platform. Everything that comes from packages, the registry or `.deplens.json` is escaped, since a pull request can change the lockfile and anyone can publish a package: a crafted name or script can't add links, images or HTML. `src/report.ts` became `src/report/`, one file per format.
    *Done:* output hardening. Text and Markdown output show control characters, invisible format characters (including right-to-left overrides) and line separators from untrusted values as visible `\u{…}` escapes, so a crafted package name or script can't hide lines, fake a clean result or reorder text in a terminal, log or page. The Markdown report cuts values to 500 characters and gives each growing section a byte budget, staying well under GitHub's 1 MiB job-summary limit, with a line counting anything left out. JSON needs neither: `JSON.stringify` escapes control characters, and programs don't render it.
-   3. `action.yml`, diffing against the pull request's base branch automatically, with a Markdown job summary. Decide how to ship the compiled code, since `dist/` is git-ignored. Document the equivalent pipeline step for GitLab CI and Bitbucket Pipelines at the same time, so the three platforms are described together. Print the report inside GitHub's `::stop-commands::<token>` block, GitHub's documented way to log untrusted text, so that no line of it can be read as a workflow command. This is GitHub-specific, so it lives in the Action, not the CLI.
-5. **Release (1 weekend).** README with one section per signal and the evaluation results, npm release with provenance, `v1` tag.
+   3. `action.yml`, diffing against the pull request's base branch automatically, with a Markdown job summary. A composite Action that runs `node "$GITHUB_ACTION_PATH/src/bin.ts"`, after setting up Node 26 (the active LTS), so no compiled code needs shipping: users pin the Action to a commit SHA, and that commit is exactly the code that runs. Document the equivalent pipeline step for GitLab CI and Bitbucket Pipelines at the same time, so the three platforms are described together. Print the report inside GitHub's `::stop-commands::<token>` block, GitHub's documented way to log untrusted text, so that no line of it can be read as a workflow command. This is GitHub-specific, so it lives in the Action, not the CLI.
+5. **Release (1 weekend).** GitHub only, for now: README with one section per signal and the evaluation results, a `SECURITY.md` saying how to report a vulnerability, and a tagged GitHub release. deplens runs from a clone, so nothing is published to npm (`package.json` is marked `private`, which makes `npm publish` refuse).
 
 ## Later, if the evaluation or users call for it
 
 - More signals: suspicious install-script contents, a dependency added in a patch release, packages less than a month old, a release after a long period with no releases, a published tarball that doesn't match the source repository.
 - SARIF output for GitHub code scanning.
 - `pnpm-lock.yaml` and `yarn.lock`.
+- **Publish to npm, once deplens has run in a production app for a while.** Before the first publish: an npm account with two-factor authentication and a dedicated alias email (maintainer emails are public in package metadata), trusted publishing from GitHub Actions with provenance and no long-lived tokens, and removing `"private": true`. The Action could then run the published package instead of the clone.
 - Portability extension points, each small and kept at the edge:
   - `--base-lockfile <path>`, for CI setups without git history. The engine already accepts a base lockfile's text.
   - Detecting the CI platform from its environment variables to fill in `--base` automatically: one table of platforms in its own module.
@@ -240,4 +243,4 @@ Each one is a complete stopping point.
 - **Bursts of near-identical findings.** One event can flag many packages at once. Two real cases so far: an organisation switching its publishing account (21 `low` DL005 findings on deplens's own lockfile, removed by DL005's 90-day window, though the same burst still happens during those 90 days), and a fresh release of a package that ships per-platform sub-packages (27 DL004 findings from one release). Diff mode limits both to the pull request that brings them in. Measure them in the noise evaluation before deciding whether the report should group findings from the same release or publisher.
 - **Overstating what's caught.** No signal catches every attack: provenance can come from a hijacked pipeline, and stolen accounts publish as their owners. Mitigated by a README that says which attack shapes each signal does and doesn't catch, backed by the attack-shape fixtures.
 - **Overlap with package-manager cooldowns.** npm and pnpm can now refuse very new versions themselves. deplens still adds value by explaining the finding and by enforcing it in CI regardless of each developer's local settings, and DL004's fix text recommends turning the setting on.
-- **Package name.** Check that `deplens` is free on npm before release, and fall back to `@seag11/deplens` if it isn't.
+- **Package name.** `deplens` was free on npm on 2026-11-22. Check again before publishing, and fall back to `@seag11/deplens` if it has been taken.
