@@ -14,8 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # The oldest supported Node version and the current LTS.
-        node-version: ["22", "24"]
+        # Every supported Node line: 22 (the minimum, until its end of life
+        # on 2027-04-30), 24 (maintenance LTS) and 26 (active LTS).
+        node-version: ["22", "24", "26"]
     steps:
       # Actions are pinned to commit SHAs, since a tag can be moved to
       # different code. The comment records the version for updates.

@@ -1,6 +1,7 @@
 {
   "name": "deplens",
   "version": "0.1.0",
+  "private": true,
   "description": "Flag npm supply chain risks that npm audit misses, with an explanation for every finding",
   "keywords": [
     "npm",
