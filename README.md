@@ -162,7 +162,7 @@ npm run build    # compile to dist/
 
 The tests run the TypeScript sources directly with Node's built-in type stripping, and never touch the network: the registry client is replaced by a fake, and the clock by a fixed date.
 
-The code is organised around one rule: rules are pure functions. The CLI reads the lockfile, `analyze()` parses it, fetches registry metadata through a `RegistryClient` and runs each rule on each package, and the reporters format the result. No rule touches the network, the file system or the clock, so each one is tested with plain objects.
+The code is organised around one rule: rules are pure functions. The CLI reads the lockfile, `analyze()` parses it, fetches registry metadata through a `RegistryClient` and runs each rule on each package, and the reporters format the result. No rule touches the network, the file system or the clock, so each one is tested with plain objects. A test (`test/architecture.test.ts`) enforces this: it follows every import from `src/rules/` and `src/report/`, transitively, and fails if any of that code can reach the network, the file system, the clock or the process.
 
 ```
 src/

@@ -183,6 +183,7 @@ TypeScript on Node ≥ 22.18 with zero runtime dependencies: `fetch`, `node:util
 ## Testing
 
 - **Rules:** a table of cases per rule, built from plain objects. Rules are pure, so no mocks.
+- **Architecture:** `test/architecture.test.ts` follows every import from `src/rules/` and `src/report/`, transitively, and fails on anything that reaches I/O: Node built-ins or packages, deplens's own I/O modules (registry, git, CLI, engine), or globals such as `fetch` and `Date.now()`. Each failure names the import chain that leads to it, and a self-test runs the checker on a deliberately impure scratch tree.
 - **Lockfile parser:** a few real lockfiles as fixtures (a small app, a workspaces monorepo, an `npm:` alias, a git dependency).
 - **analyze():** end-to-end with a fake `RegistryClient` that reads recorded JSON from `test/fixtures/registry/`, and a fixed date. No network.
 - **Attack shapes:** one synthetic fixture per pattern, checking which rules fire and that the default and recommended thresholds give the expected result:
